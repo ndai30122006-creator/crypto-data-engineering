@@ -1,0 +1,19 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/dagster \
+    DAGSTER_HOME=/opt/dagster/dagster_home
+
+WORKDIR /opt/dagster
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY dagster_project ./dagster_project
+COPY workspace.yaml ./workspace.yaml
+COPY config ./config
+
+RUN mkdir -p /opt/dagster/dagster_home
+
+EXPOSE 3000

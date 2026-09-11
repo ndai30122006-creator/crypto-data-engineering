@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Env / secrets
+.env
+
+# Docker volumes / local data
+pgdata/
+dagster_home/
+
+# Dagster runtime
+*.db
+*.db-shm
+*.db-wal
+logs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
