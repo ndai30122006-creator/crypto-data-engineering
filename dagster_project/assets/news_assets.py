@@ -1,6 +1,4 @@
 """Pipeline: fetch_news (raw) -> clean_news -> load_postgres."""
-import asyncio
-
 from dagster import AssetExecutionContext, asset
 from pydantic import ValidationError
 
@@ -10,16 +8,15 @@ from dagster_project.news.cleaner import (
     dedupe_by_url,
     extract_symbols,
 )
-from dagster_project.news.collector import fetch_all
 from dagster_project.news.parser import parse_entries
 from dagster_project.news.schemas import CleanArticle, RawArticle
-from dagster_project.resources import PostgresResource
+from dagster_project.resources import PostgresResource, RSSFeedResource
 
 
 @asset
-def raw_news(context: AssetExecutionContext) -> list[dict]:
+def raw_news(context: AssetExecutionContext, rss: RSSFeedResource) -> list[dict]:
     """Fetch tin tức từ tất cả RSS sources."""
-    items, errors = asyncio.run(fetch_all())
+    items, errors = rss.fetch_raw()
     for err in errors:
         context.log.warning(err)
     parsed = parse_entries(items)
@@ -57,30 +54,6 @@ def loaded_news(
     cleaned_news: list[dict],
 ) -> int:
     """Load vào PostgreSQL, bỏ qua URL đã tồn tại."""
-    conn = postgres.get_conn()
-    inserted = 0
-    try:
-        with conn, conn.cursor() as cur:
-            for article in cleaned_news:
-                cur.execute(
-                    """
-                    INSERT INTO crypto_news
-                        (title, url, source, published_at, content, sentiment, symbols)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (url) DO NOTHING
-                    """,
-                    (
-                        article["title"],
-                        article["url"],
-                        article["source"],
-                        article["published_at"],
-                        article["content"],
-                        article["sentiment"],
-                        article["symbols"],
-                    ),
-                )
-                inserted += cur.rowcount
-    finally:
-        conn.close()
+    inserted = postgres.insert_news(cleaned_news)
     context.log.info(f"inserted {inserted} new articles ({len(cleaned_news)} processed)")
     return inserted

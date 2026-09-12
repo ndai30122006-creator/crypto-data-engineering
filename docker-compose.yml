@@ -30,6 +30,7 @@ services:
     environment:
       DAGSTER_HOME: /opt/dagster/dagster_home
       DATABASE_URL: postgresql://admin:secret@postgres:5432/crypto_db
+      DAGSTER_ENVIRONMENT: local
     volumes:
       - ./dagster_project:/opt/dagster/dagster_project
       - ./workspace.yaml:/opt/dagster/workspace.yaml:ro
@@ -48,6 +49,7 @@ services:
     environment:
       DAGSTER_HOME: /opt/dagster/dagster_home
       DATABASE_URL: postgresql://admin:secret@postgres:5432/crypto_db
+      DAGSTER_ENVIRONMENT: local
     volumes:
       - ./dagster_project:/opt/dagster/dagster_project
       - ./workspace.yaml:/opt/dagster/workspace.yaml:ro

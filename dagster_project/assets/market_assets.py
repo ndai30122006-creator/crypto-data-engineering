@@ -1,20 +1,20 @@
 """Pipeline: fetch_market -> validate_market -> loaded_snapshot (mỗi giờ)."""
-import json
 from datetime import datetime, timezone
 
 from dagster import AssetExecutionContext, asset
 from pydantic import ValidationError
 
-from dagster_project.market.fetcher import fetch_markets
 from dagster_project.market.schemas import RawMarket, from_coingecko
 from dagster_project.market.validator import validate
-from dagster_project.resources import PostgresResource
+from dagster_project.resources import CoinGeckoResource, PostgresResource
 
 
 @asset
-def fetch_market(context: AssetExecutionContext) -> list[dict]:
-    """Lấy top 50 coins từ CoinGecko, validate Pydantic."""
-    raw_items = fetch_markets(per_page=50)
+def fetch_market(
+    context: AssetExecutionContext, coingecko: CoinGeckoResource
+) -> list[dict]:
+    """Lấy top coins từ CoinGecko, validate Pydantic."""
+    raw_items = coingecko.fetch_markets()
     valid: list[dict] = []
     for item in raw_items:
         try:
@@ -36,9 +36,7 @@ def validate_market(
     context.log.info(f"valid={len(valid)} errors={len(errors)}")
     return {
         "valid": [RawMarket(**v).model_dump(mode="json") for v in valid],
-        "errors": [
-            {**e, "payload": json.dumps(e["payload"], default=str)} for e in errors
-        ],
+        "errors": errors,
     }
 
 
@@ -49,41 +47,8 @@ def loaded_snapshot(
     validate_market: dict,
 ) -> int:
     """INSERT snapshot + ghi bad records vào data_quality_errors."""
-    conn = postgres.get_conn()
-    inserted = 0
     collected_at = datetime.now(timezone.utc)
-    try:
-        with conn, conn.cursor() as cur:
-            for coin in validate_market["valid"]:
-                cur.execute(
-                    """
-                    INSERT INTO crypto_market_snapshot
-                        (collected_at, symbol, name, price, market_cap,
-                         circulating_supply, volume_24h, price_change_24h)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (collected_at, symbol) DO NOTHING
-                    """,
-                    (
-                        collected_at,
-                        coin["symbol"],
-                        coin["name"],
-                        coin["price"],
-                        coin["market_cap"],
-                        coin["circulating_supply"],
-                        coin["volume_24h"],
-                        coin["price_change_24h"],
-                    ),
-                )
-                inserted += cur.rowcount
-            for err in validate_market["errors"]:
-                cur.execute(
-                    """
-                    INSERT INTO data_quality_errors (pipeline, payload, error)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (err["pipeline"], err["payload"], err["error"]),
-                )
-    finally:
-        conn.close()
+    inserted = postgres.insert_snapshot(collected_at, validate_market["valid"])
+    postgres.insert_errors(validate_market["errors"])
     context.log.info(f"inserted {inserted} snapshots")
     return inserted

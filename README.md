@@ -7,13 +7,14 @@ Dagster, store queryable data in PostgreSQL.
 
 ## Status
 
-- [x] News pipeline (RSS → Dagster → PostgreSQL) — live, 190+ rows
-- [ ] Market-cap snapshot job (hourly)
+- [x] News pipeline (RSS → Dagster → PostgreSQL) — live, schedule mỗi 5 phút
+- [x] Market-cap snapshot job (hourly, CoinGecko top 50)
+- [x] Resource practice P1–P4 (RSS/CoinGecko/Postgres resources, env-aware tables, mock tests)
 - [ ] Binance → Kafka ingestion (realtime)
 - [ ] Kafka → Pathway → OHLCV 1m (stream processing)
 - [ ] News ↔ market correlation queries
 
-## Architecture (news branch)
+## Architecture
 
 ```
 Crypto News API / RSS (CoinDesk, CoinTelegraph, BitcoinMag, Google News)
@@ -21,16 +22,23 @@ Crypto News API / RSS (CoinDesk, CoinTelegraph, BitcoinMag, Google News)
         ▼
 ┌───────────────┐
 │    Dagster    │
-│  raw_news     │  fetch 4 RSS concurrently, validate with Pydantic
+│  raw_news     │  RSSFeedResource fetch 4 RSS, validate with Pydantic
 │  cleaned_news │  strip HTML, extract symbols, sentiment, dedupe
-│  loaded_news   │  INSERT, skip existing URL (ON CONFLICT DO NOTHING)
+│  loaded_news   │  PostgresResource.insert_news, skip existing URL
 └───────┬───────┘
         ▼
 ┌───────────────┐
 │  PostgreSQL   │
 │  crypto_news  │
 └───────────────┘
+
+CoinGecko API ── hourly (market_job_schedule) ──▶ fetch_market
+        ──▶ validate_market ──▶ loaded_snapshot ──▶ crypto_market_snapshot
+                                                  └─▶ data_quality_errors (bad records)
 ```
+
+Tables are env-suffixed outside prod (e.g. `crypto_news_local`
+when `DAGSTER_ENVIRONMENT=local`).
 
 ## Tech stack
 
@@ -43,27 +51,27 @@ Crypto News API / RSS (CoinDesk, CoinTelegraph, BitcoinMag, Google News)
 | Pydantic | Data validation |
 | psycopg2 | Postgres driver |
 | Docker Compose | 3 services: postgres, dagster-webserver, dagster-daemon |
-| pytest | Unit tests |
+| pytest | 20 unit tests (pure logic + resource mocks, offline) |
 
 ## Project structure
 
 ```
-docker-compose.yml        postgres + dagster-webserver + dagster-daemon
+docker-compose.yml        postgres + dagster-webserver + dagster-daemon (name: crypto-data-engineering)
 Dockerfile.dagster
 requirements.txt
-workspace.yaml            code location: dagster_project.definitions
+workspace.yaml            code location: crypto-data-platform (dagster_project.definitions)
 config/config.yaml        4 RSS feed URLs
-database/schema.sql       CREATE TABLE crypto_news
+database/schema.sql       crypto_news, crypto_market_snapshot, data_quality_errors
+database/queries.sql      8 analytical queries
 dagster_project/
-  definitions.py          assets + news_job + schedule */5 * * * *
-  resources.py            PostgresResource (DATABASE_URL)
-  news/
-    collector.py          async fetch all feeds
-    parser.py             normalize entries, sanitize CoinDesk XML quirk
-    cleaner.py            clean text, symbols, sentiment, dedupe
-    schemas.py            RawArticle / CleanArticle (Pydantic)
-  assets/news_assets.py   raw_news -> cleaned_news -> loaded_news
-tests/test_cleaner.py     8 unit tests
+  definitions.py          2 jobs + 2 schedules + 3 resources
+  resources/              RSSFeedResource, CoinGeckoResource, PostgresResource (env-aware)
+  news/                   parser, cleaner, schemas (pure logic, no IO)
+  market/                 schemas, validator (pure logic, no IO)
+  assets/                 news_assets (3) + market_assets (3)
+tests/                    test_cleaner, test_market, test_resources (20 tests)
+plan/                     roadmap + phase 01–06 plans
+docs/                     learning guides (news, market, correlation, resources, overview)
 ```
 
 ## Quickstart
@@ -76,12 +84,15 @@ docker compose up --build
 
 - Dagster UI: http://localhost:3000
   - Assets tab → **Materialize all** (run once now)
-  - Automation tab → enable **news_job_schedule** (auto every 5 min)
+  - Automation tab → enable **news_job_schedule** (every 5 min)
+    and **market_job_schedule** (hourly)
 - Check data:
 ```powershell
-docker exec crypto-postgres psql -U admin -d crypto_db -c "SELECT source, count(*) FROM crypto_news GROUP BY 1;"
+docker exec crypto-postgres psql -U admin -d crypto_db -c "SELECT source, count(*) FROM crypto_news_local GROUP BY 1;"
 ```
 - Run tests (local): `pip install -r requirements.txt; pytest tests/ -q`
+  - Local Dagster CLI needs env vars first:
+    `$env:DATABASE_URL="..."; $env:DAGSTER_ENVIRONMENT="local"`
 - Stop: `docker compose down` (data kept in `pgdata` volume)
 
 ## Notes

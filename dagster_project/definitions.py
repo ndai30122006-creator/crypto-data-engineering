@@ -16,7 +16,11 @@ from dagster_project.assets.news_assets import (
     loaded_news,
     raw_news,
 )
-from dagster_project.resources import PostgresResource
+from dagster_project.resources import (
+    CoinGeckoResource,
+    PostgresResource,
+    RSSFeedResource,
+)
 
 news_job = define_asset_job(
     name="news_job",
@@ -48,5 +52,12 @@ defs = Definitions(
         loaded_snapshot,
     ],
     schedules=[news_schedule, market_schedule],
-    resources={"postgres": PostgresResource(conn_str=EnvVar("DATABASE_URL"))},
+    resources={
+        "postgres": PostgresResource(
+            conn_str=EnvVar("DATABASE_URL"),
+            env=EnvVar("DAGSTER_ENVIRONMENT"),
+        ),
+        "rss": RSSFeedResource(),
+        "coingecko": CoinGeckoResource(),
+    },
 )
