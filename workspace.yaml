@@ -1,2 +1,4 @@
 load_from:
-  - python_module: dagster_project.definitions
+  - python_module:
+      module_name: dagster_project.definitions
+      location_name: crypto-data-platform

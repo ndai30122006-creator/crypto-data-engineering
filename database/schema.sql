@@ -19,3 +19,23 @@ CREATE INDEX IF NOT EXISTS idx_crypto_news_published_at
 
 CREATE INDEX IF NOT EXISTS idx_crypto_news_source
     ON crypto_news (source);
+
+CREATE TABLE IF NOT EXISTS crypto_market_snapshot (
+    collected_at TIMESTAMPTZ DEFAULT NOW(),
+    symbol VARCHAR(20) NOT NULL,
+    name VARCHAR(100),
+    price NUMERIC(20,8),
+    market_cap NUMERIC(30,2),
+    circulating_supply NUMERIC(30,2),
+    volume_24h NUMERIC(30,2),
+    price_change_24h NUMERIC(10,4),
+    PRIMARY KEY (collected_at, symbol)
+);
+
+CREATE TABLE IF NOT EXISTS data_quality_errors (
+    id BIGSERIAL PRIMARY KEY,
+    pipeline VARCHAR(50),
+    payload JSONB,
+    error TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
