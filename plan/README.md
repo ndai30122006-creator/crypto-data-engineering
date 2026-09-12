@@ -7,7 +7,7 @@ Training Data Engineer: batch + streaming + orchestration + storage.
 | Phase | Nội dung | Trạng thái | File plan |
 |---|---|---|---|
 | 1 | News pipeline (RSS → Dagster → Postgres) | ✅ DONE, live | `01-news-pipeline.md` |
-| 2 | Market-cap snapshot job (mỗi 1 giờ) | ⬜ chưa làm | `02-market-cap-snapshot.md` |
+| 2 | Market-cap snapshot job (mỗi 1 giờ) | 🔄 plan chi tiết xong, chưa code | `02-market-cap-snapshot.md` |
 | 3 | Binance WebSocket → Kafka (realtime) | ⬜ chưa làm | `03-binance-kafka.md` |
 | 4 | Kafka → Pathway → OHLCV 1m (stream processing) | ⬜ chưa làm | `04-pathway-streaming.md` |
 | 5 | Tích hợp: correlation query, data quality, milestones | ⬜ chưa làm | `05-integration.md` |
