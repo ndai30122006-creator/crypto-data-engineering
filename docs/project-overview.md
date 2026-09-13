@@ -28,7 +28,7 @@ correlation query (Phase 5).
 
 ## 3. Phase 1 — News pipeline ✅ live
 
-- **Fetch** (`news/collector.py`): httpx async tải đồng thời 4 RSS
+- **Fetch** (`resources/rss.py` → `RSSFeedResource`): httpx async tải đồng thời 4 RSS
   (CoinDesk, CoinTelegraph, BitcoinMag `/feed`, Google News). Config ở
   `config/config.yaml`, fallback `DEFAULT_FEEDS` trong code.
 - **Parse** (`news/parser.py`): chuẩn hoá về `{title, url, source,
@@ -77,18 +77,18 @@ correlation query (Phase 5).
 | httpx/feedparser | Tải + parse RSS | Async tải song song |
 | Pydantic | Validate tầng 1 | Rác bị loại trước khi vào DB |
 | psycopg2 | Driver Postgres | `with conn` tự commit/rollback |
-| Docker Compose | 3 services + volumes | `name: crypto-data-engineering` ghim tên project |
+| Docker Compose | 4 services + volumes | postgres + dagster-code (gRPC 4000) + webserver + daemon |
 | pytest | 15 unit tests | Mock để offline được |
 
 Khái niệm cốt lõi đã học: cron, upsert/idempotency, composite key, JSONB,
 retry/backoff, field mapping, bad-record pattern, volume/mount, code location
-(`workspace.yaml` → `python_module`).
+(`workspace.yaml` → `grpc_server` dagster-code:4000).
 
 ## 6. Repo & files
 
 ```
 C:\crypto-data-engineering\  (GitHub: ndai30122006-creator/crypto-data-engineering)
-├── docker-compose.yml, Dockerfile.dagster, requirements.txt, workspace.yaml
+├── docker-compose.yml, Dockerfile.dagster, pyproject.toml + uv.lock, workspace.yaml
 ├── config/config.yaml
 ├── database/schema.sql, database/queries.sql
 ├── dagster_project/

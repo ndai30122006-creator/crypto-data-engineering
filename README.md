@@ -50,7 +50,7 @@ when `DAGSTER_ENVIRONMENT=local`).
 | httpx + feedparser | RSS fetch & parse |
 | Pydantic | Data validation |
 | psycopg2 | Postgres driver |
-| Docker Compose | 3 services: postgres, dagster-webserver, dagster-daemon |
+| Docker Compose | 4 services: postgres, dagster-code (gRPC 4000), webserver, daemon |
 | uv | Package + project manager (`pyproject.toml` + `uv.lock`) |
 | pytest | 20 unit tests (pure logic + resource mocks, offline) |
 

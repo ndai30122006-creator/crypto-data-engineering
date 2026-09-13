@@ -25,7 +25,7 @@ Ví dụ 1 item trong RSS:
 </item>
 ```
 
-### Trong project (`news/collector.py`, `config/config.yaml`)
+### Trong project (`resources/rss.py`, `config/config.yaml`)
 
 - 4 URLs RSS lưu ở `config/config.yaml`, đọc bằng `yaml.safe_load`
 - `httpx.AsyncClient` tải cả 4 feeds **đồng thời** (asyncio.gather)
@@ -121,10 +121,10 @@ password.
 
 1. Chạy local (không cần Docker):
 ```powershell
-pip install feedparser httpx pydantic pyyaml python-dateutil
-python -m pytest tests/ -q
+uv sync
+uv run pytest tests/ -q
 ```
-2. Đọc `collector.py`: nếu 1 trong 4 nguồn chết, 3 nguồn còn lại có sao
+2. Đọc `resources/rss.py`: nếu 1 trong 4 nguồn chết, 3 nguồn còn lại có sao
    không? (gợi ý: `return_exceptions=True`)
 
 ---
