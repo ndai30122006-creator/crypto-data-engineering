@@ -19,6 +19,25 @@ services:
       timeout: 5s
       retries: 10
 
+  dagster-code:
+    build:
+      context: .
+      dockerfile: Dockerfile.dagster
+    container_name: crypto-dagster-code
+    command: dagster code-server start -h 0.0.0.0 -p 4000 -m dagster_project.definitions
+    expose:
+      - "4000"
+    environment:
+      DATABASE_URL: postgresql://admin:secret@postgres:5432/crypto_db
+      DAGSTER_ENVIRONMENT: local
+    volumes:
+      - ./dagster_project:/opt/dagster/dagster_project
+      - ./config:/opt/dagster/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   dagster-webserver:
     build:
       context: .
@@ -29,16 +48,14 @@ services:
       - "3000:3000"
     environment:
       DAGSTER_HOME: /opt/dagster/dagster_home
-      DATABASE_URL: postgresql://admin:secret@postgres:5432/crypto_db
-      DAGSTER_ENVIRONMENT: local
     volumes:
-      - ./dagster_project:/opt/dagster/dagster_project
       - ./workspace.yaml:/opt/dagster/workspace.yaml:ro
-      - ./config:/opt/dagster/config:ro
       - dagster_home:/opt/dagster/dagster_home
     depends_on:
       postgres:
         condition: service_healthy
+      dagster-code:
+        condition: service_started
 
   dagster-daemon:
     build:
@@ -48,16 +65,14 @@ services:
     command: dagster-daemon run -w /opt/dagster/workspace.yaml
     environment:
       DAGSTER_HOME: /opt/dagster/dagster_home
-      DATABASE_URL: postgresql://admin:secret@postgres:5432/crypto_db
-      DAGSTER_ENVIRONMENT: local
     volumes:
-      - ./dagster_project:/opt/dagster/dagster_project
       - ./workspace.yaml:/opt/dagster/workspace.yaml:ro
-      - ./config:/opt/dagster/config:ro
       - dagster_home:/opt/dagster/dagster_home
     depends_on:
       postgres:
         condition: service_healthy
+      dagster-code:
+        condition: service_started
 
 volumes:
   pgdata:

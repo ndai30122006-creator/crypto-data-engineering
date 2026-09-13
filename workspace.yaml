@@ -1,4 +1,5 @@
 load_from:
-  - python_module:
-      module_name: dagster_project.definitions
+  - grpc_server:
+      host: dagster-code
+      port: 4000
       location_name: crypto-data-platform
