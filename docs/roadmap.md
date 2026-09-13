@@ -9,7 +9,7 @@ Tổng hợp từ `plan/` (01–06 + README), cập nhật theo code thực tế
 |---|---|---|---|
 | 1 | News pipeline (RSS → Dagster → Postgres) | ✅ DONE, live | §1 |
 | 2 | Market-cap snapshot job (mỗi 1 giờ) | ✅ DONE, live | §2 |
-| 3 | Binance WebSocket → Kafka (realtime) | ⬜ chưa làm | §3 |
+| 3 | Binance WebSocket → Kafka (realtime) | ✅ DONE, live | §3 |
 | 4 | Kafka → Pathway → OHLCV 1m | ⬜ chưa làm | §4 |
 | 5 | Tích hợp: correlation, data quality, milestones | ⬜ chưa làm (query 8 đã có khung) | §5 |
 | 6 | Resource practice (theo blog Dagster Resources) | ✅ P1–P4 DONE, P5 check tay trên UI | §6 |
@@ -76,7 +76,7 @@ SELECT symbol, volume_24h                               -- volume leaders
 FROM crypto_market_snapshot ORDER BY volume_24h DESC LIMIT 10;
 ```
 
-## 3. Phase 3 — Binance → Kafka ⬜
+## 3. Phase 3 — Binance → Kafka ✅
 
 Ingest giá/trade realtime 5 cặp (BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT) vào topic `crypto.trades`. KHÔNG dùng Dagster (Dagster = batch, không giữ WebSocket lâu).
 
@@ -84,11 +84,12 @@ Ingest giá/trade realtime 5 cặp (BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT)
 Binance WebSocket ──▶ binance-consumer ──▶ Kafka (topic crypto.trades) ──▶ (Phase 4: Pathway)
 ```
 
-- Services mới: `kafka` (KRaft, không Zookeeper), `binance-consumer` (Python thường trực).
-- Event: `{"symbol", "price", "quantity", "timestamp"}`; key Kafka = `symbol` (giữ thứ tự / partition).
-- Files cần tạo: `ingestion/binance_consumer.py` (combined WebSocket + reconnect backoff), `ingestion/kafka_producer.py` (JSON serialize, key=symbol), `Dockerfile.consumer`, thêm service vào compose.
-- Direct sink optional: bảng `market_trades` + index `(symbol, event_time DESC)`.
-- Verify: `kafka-console-consumer --topic crypto.trades` thấy event chảy; consumer chết 10 phút → restart đọc tiếp (offset commit).
+- Services: `kafka` (apache/kafka 3.9, KRaft, healthcheck `kafka-topics.sh`), `binance-consumer` (image `Dockerfile.consumer`, uv, restart unless-stopped).
+- `ingestion/events.py` — pure logic (URL combined stream, `parse_trade` validate price/quantity > 0, serialize JSON). Test offline `tests/test_ingestion.py` (5 tests).
+- `ingestion/kafka_producer.py` — wrapper producer, **key = symbol** (cùng coin → cùng partition, giữ thứ tự).
+- `ingestion/binance_consumer.py` — service thường trực: `WebSocketApp` + reconnect backoff (1s → max 60s), log chuẩn. Config qua env `KAFKA_BOOTSTRAP_SERVERS` / `KAFKA_TOPIC` / `SYMBOLS`.
+- Verify live: `kafka-console-consumer --topic crypto.trades` thấy event chảy (`{"symbol": "ETHUSDT", "price": ..., ...}`).
+- Còn lại: consumer chết 10 phút → restart đọc tiếp (offset commit) — tự kiểm chứng khi cần.
 
 ## 4. Phase 4 — Kafka → Pathway → OHLCV 1m ⬜
 

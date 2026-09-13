@@ -9,10 +9,12 @@ dependencies = [
     "dagster-webserver>=1.10,<2",
     "feedparser",
     "httpx",
+    "kafka-python>=3.0.11",
     "psycopg2-binary",
     "pydantic>=2",
     "python-dateutil",
     "pyyaml",
+    "websocket-client>=1.9.2",
 ]
 
 [dependency-groups]

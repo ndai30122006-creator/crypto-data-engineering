@@ -57,8 +57,8 @@ when `DAGSTER_ENVIRONMENT=local`).
 ## Project structure
 
 ```
-docker-compose.yml        postgres + dagster-code (gRPC 4000) + webserver + daemon
-Dockerfile.dagster
+docker-compose.yml        postgres + dagster-code (gRPC 4000) + webserver + daemon + kafka + binance-consumer
+Dockerfile.dagster + Dockerfile.consumer
 pyproject.toml + uv.lock (.python-version: 3.12)
 workspace.yaml            grpc_server dagster-code:4000 (location: crypto-data-platform)
 config/config.yaml        4 RSS feed URLs
