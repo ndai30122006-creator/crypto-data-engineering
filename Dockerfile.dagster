@@ -6,17 +6,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/opt/dagster \
     DAGSTER_HOME=/opt/dagster/dagster_home \
-    UV_SYSTEM_PYTHON=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    PATH="/opt/dagster/.venv/bin:$PATH"
 
 WORKDIR /opt/dagster
 
-COPY pyproject.toml uv.lock .python-version ./
-RUN uv sync --frozen --no-dev
+COPY pyproject.toml uv.lock .python-version README.md ./
+RUN uv sync --frozen --no-dev --no-install-project
 
 COPY dagster_project ./dagster_project
 COPY workspace.yaml ./workspace.yaml
 COPY config ./config
+
+RUN uv sync --frozen --no-dev
 
 RUN mkdir -p /opt/dagster/dagster_home
 
