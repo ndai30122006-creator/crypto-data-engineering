@@ -2,7 +2,7 @@
 import time
 
 import httpx
-from dagster import ConfigurableResource
+from dagster import ConfigurableResource, get_dagster_logger
 
 
 class CoinGeckoResource(ConfigurableResource):
@@ -37,6 +37,9 @@ class CoinGeckoResource(ConfigurableResource):
                 ValueError,
             ) as exc:
                 last_error = exc
+                get_dagster_logger().warning(
+                    f"CoinGecko attempt {attempt + 1}/{self.retries} failed: {exc}"
+                )
                 time.sleep(2**attempt)
         raise RuntimeError(
             f"fetch_markets failed after {self.retries} attempts: {last_error}"

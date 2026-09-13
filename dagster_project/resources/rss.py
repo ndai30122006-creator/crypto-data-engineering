@@ -5,7 +5,7 @@ from pathlib import Path
 import feedparser
 import httpx
 import yaml
-from dagster import ConfigurableResource
+from dagster import ConfigurableResource, get_dagster_logger
 
 from dagster_project.news.parser import sanitize_feed_xml
 
@@ -68,4 +68,8 @@ class RSSFeedResource(ConfigurableResource):
                 errors.append(f"[{name}] {type(result).__name__}: {result}")
             else:
                 items.extend(result)
+        get_dagster_logger().info(
+            f"RSS fetched {len(items)} entries from {len(feeds)} feeds "
+            f"({len(errors)} feed errors)"
+        )
         return items, errors

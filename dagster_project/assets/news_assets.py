@@ -27,6 +27,9 @@ def raw_news(context: AssetExecutionContext, rss: RSSFeedResource) -> list[dict]
         except ValidationError as exc:
             context.log.warning(f"skip invalid article {article.get('url')}: {exc}")
     context.log.info(f"fetched {len(valid)} articles ({len(errors)} source errors)")
+    context.add_output_metadata(
+        {"articles": len(valid), "source_errors": len(errors)}
+    )
     return valid
 
 
@@ -44,6 +47,13 @@ def cleaned_news(context: AssetExecutionContext, raw_news: list[dict]) -> list[d
         data["sentiment"] = classify_sentiment(text)
         cleaned.append(CleanArticle(**data).model_dump(mode="json"))
     context.log.info(f"cleaned {len(cleaned)} articles (from {len(raw_news)} raw)")
+    context.add_output_metadata(
+        {
+            "raw": len(raw_news),
+            "deduped": len(deduped),
+            "cleaned": len(cleaned),
+        }
+    )
     return cleaned
 
 
@@ -55,5 +65,7 @@ def loaded_news(
 ) -> int:
     """Load vào PostgreSQL, bỏ qua URL đã tồn tại."""
     inserted = postgres.insert_news(cleaned_news)
-    context.log.info(f"inserted {inserted} new articles ({len(cleaned_news)} processed)")
+    skipped = len(cleaned_news) - inserted
+    context.log.info(f"inserted {inserted} new articles ({skipped} duplicates skipped)")
+    context.add_output_metadata({"inserted": inserted, "skipped": skipped})
     return inserted

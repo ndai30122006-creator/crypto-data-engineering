@@ -22,6 +22,7 @@ def fetch_market(
         except ValidationError as exc:
             context.log.warning(f"skip invalid coin {item.get('id')}: {exc}")
     context.log.info(f"fetched {len(valid)} coins")
+    context.add_output_metadata({"coins": len(valid), "raw_items": len(raw_items)})
     return valid
 
 
@@ -34,6 +35,7 @@ def validate_market(
     for err in errors:
         context.log.warning(f"bad record: {err['error']} | {err['payload'].get('symbol')}")
     context.log.info(f"valid={len(valid)} errors={len(errors)}")
+    context.add_output_metadata({"valid": len(valid), "errors": len(errors)})
     return {
         "valid": [RawMarket(**v).model_dump(mode="json") for v in valid],
         "errors": errors,
@@ -50,5 +52,11 @@ def loaded_snapshot(
     collected_at = datetime.now(timezone.utc)
     inserted = postgres.insert_snapshot(collected_at, validate_market["valid"])
     postgres.insert_errors(validate_market["errors"])
-    context.log.info(f"inserted {inserted} snapshots")
+    context.log.info(
+        f"inserted {inserted} snapshots "
+        f"({len(validate_market['errors'])} bad records quarantined)"
+    )
+    context.add_output_metadata(
+        {"inserted": inserted, "quarantined": len(validate_market["errors"])}
+    )
     return inserted
