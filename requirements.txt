@@ -1,9 +1,0 @@
-dagster>=1.10,<2
-dagster-webserver>=1.10,<2
-feedparser
-httpx
-psycopg2-binary
-pydantic>=2
-python-dateutil
-pyyaml
-pytest

@@ -51,6 +51,7 @@ when `DAGSTER_ENVIRONMENT=local`).
 | Pydantic | Data validation |
 | psycopg2 | Postgres driver |
 | Docker Compose | 3 services: postgres, dagster-webserver, dagster-daemon |
+| uv | Package + project manager (`pyproject.toml` + `uv.lock`) |
 | pytest | 20 unit tests (pure logic + resource mocks, offline) |
 
 ## Project structure
@@ -58,7 +59,7 @@ when `DAGSTER_ENVIRONMENT=local`).
 ```
 docker-compose.yml        postgres + dagster-webserver + dagster-daemon (name: crypto-data-engineering)
 Dockerfile.dagster
-requirements.txt
+pyproject.toml + uv.lock (.python-version: 3.12)
 workspace.yaml            code location: crypto-data-platform (dagster_project.definitions)
 config/config.yaml        4 RSS feed URLs
 database/schema.sql       crypto_news, crypto_market_snapshot, data_quality_errors
@@ -90,7 +91,7 @@ docker compose up --build
 ```powershell
 docker exec crypto-postgres psql -U admin -d crypto_db -c "SELECT source, count(*) FROM crypto_news_local GROUP BY 1;"
 ```
-- Run tests (local): `pip install -r requirements.txt; pytest tests/ -q`
+- Run tests (local): `uv sync; uv run pytest tests/ -q`
   - Local Dagster CLI needs env vars first:
     `$env:DATABASE_URL="..."; $env:DAGSTER_ENVIRONMENT="local"`
 - Stop: `docker compose down` (data kept in `pgdata` volume)

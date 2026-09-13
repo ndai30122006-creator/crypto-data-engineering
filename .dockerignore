@@ -4,3 +4,5 @@ __pycache__/
 .env
 pgdata/
 tests/
+.venv/
+uv-cache/
