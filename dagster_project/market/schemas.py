@@ -1,4 +1,4 @@
-"""msgspec Structs + mapping field CoinGecko về tên nội bộ (thay Pydantic)."""
+"""msgspec Structs + mapping field CoinGecko về tên nội bộ."""
 import msgspec
 
 

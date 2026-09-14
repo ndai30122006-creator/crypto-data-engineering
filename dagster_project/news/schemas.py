@@ -1,4 +1,4 @@
-"""msgspec Structs cho news articles (thay Pydantic: nhanh hơn, đủ dùng)."""
+"""msgspec Structs cho news articles."""
 from datetime import datetime
 
 import msgspec

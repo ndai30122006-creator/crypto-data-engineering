@@ -13,7 +13,7 @@ from dagster_project.resources import CoinGeckoResource, PostgresResource
 def fetch_market(
     context: AssetExecutionContext, coingecko: CoinGeckoResource
 ) -> list[dict]:
-    """Lấy top coins từ CoinGecko, validate Pydantic."""
+    """Lấy top coins từ CoinGecko, validate msgspec."""
     raw_items = coingecko.fetch_markets()
     valid: list[dict] = []
     for item in raw_items:

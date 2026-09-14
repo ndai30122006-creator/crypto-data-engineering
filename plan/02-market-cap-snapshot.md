@@ -68,7 +68,7 @@ File mới: `dagster_project/market/fetcher.py`
 - Kiến thức: HTTP status (200/429/500), retry/backoff, timeout
 - Xong khi: chạy thử local in ra 50 coins
 
-## Step 3 — schemas.py (msgspec Struct, trước đây Pydantic)
+## Step 3 — schemas.py (msgspec Struct)
 
 File mới: `dagster_project/market/schemas.py`
 

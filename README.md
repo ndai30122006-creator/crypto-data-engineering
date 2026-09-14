@@ -60,7 +60,6 @@ when `DAGSTER_ENVIRONMENT=local`). `market_1m` is global (streaming).
 | httpx 0.28.1 + feedparser 6.0.14 | RSS fetch & parse (retry/backoff) |
 | msgspec 0.21.1 / orjson 3.12.0 / ciso8601 2.3.3 | Validate + JSON + parse ngày tốc độ cao |
 | jlogger (git) | Logger JSON structured cho services (`ingestion/jlog.py`) |
-| Pydantic (transitive qua Dagster) | Code mình không import trực tiếp nữa |
 | python-dateutil 2.9.0 + pyyaml 6.0.3 | Fallback parse RFC-2822 + đọc config YAML |
 | psycopg2-binary 2.9.13 | Postgres driver |
 | Docker Compose | 7 services: postgres, kafka, dagster-code (gRPC 4000), webserver, daemon, binance-consumer, pathway |
