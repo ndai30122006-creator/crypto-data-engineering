@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 import pathway as pw
 
 from ingestion.jlog import get_logger
+from streaming import metrics as engine_metrics
 from streaming.postgres_sink import UPSERT_1M, ensure_tables, to_row
 from streaming.windows import WINDOW_SECONDS
 
@@ -100,13 +101,18 @@ def make_sink():
         with conn, conn.cursor() as cur:
             cur.execute(UPSERT_1M, to_row(candle))
         written["n"] += 1
+        stats = engine_metrics.note_candle(
+            candle["symbol"], candle["window_start"], candle["close"]
+        )
         if written["n"] == 1 or written["n"] % 50 == 0:
+            engine_metrics.dump(os.getenv("METRICS_FILE", "/tmp/pathway-metrics.json"))
             log.info(
                 "upserted candles",
                 n=written["n"],
                 symbol=candle["symbol"],
                 window=datetime.fromtimestamp(candle["window_start"], tz=UTC).isoformat(),
                 close=candle["close"],
+                **stats,
             )
 
     return on_candle
@@ -126,6 +132,12 @@ def main() -> None:
     )
     log.info("streaming", topic=topic, table="market_1m", window_s=WINDOW_SECONDS)
     candles = build_candles(trades)
+
+    def on_trade(key, row: dict, time, is_addition: bool) -> None:
+        if is_addition:
+            engine_metrics.note_event(row["symbol"], row["timestamp"])
+
+    pw.io.subscribe(trades, on_trade)
     pw.io.subscribe(candles, make_sink())
     pw.run()
 

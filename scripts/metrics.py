@@ -22,6 +22,26 @@ def _docker_logs(name: str, since: str) -> str:
     return (proc.stdout or "") + (proc.stderr or "")
 
 
+def pathway_engine() -> dict:
+    """Metrics engine (events/windows/latency/last OHLCV theo symbol)."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["docker", "exec", "crypto-pathway",
+             "cat", "/tmp/pathway-metrics.json"],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"error": f"docker exec lỗi: {exc}"}
+    if proc.returncode != 0:
+        return {"error": "chưa có metrics file (engine mới start?)"}
+    try:
+        return json.loads(proc.stdout)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        return {"error": f"metrics file hỏng: {exc}"}
+
+
 def binance_consumer() -> dict:
     """Counters consumer (received/invalid/published/failures/reconnects).
 
@@ -167,6 +187,7 @@ def collect(minutes: int = DEFAULT_MINUTES) -> dict:
         "dagster_runs": dagster_runs(f"{minutes}m"),
         "kafka": group,
         "binance": binance_consumer(),
+        "pathway": pathway_engine(),
         "db": db_stats(),
     }
 

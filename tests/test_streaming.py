@@ -1,7 +1,9 @@
-"""Unit tests cho streaming windows + sink (offline, không cần pathway/Kafka)."""
+"""Unit tests cho streaming windows + sink + engine metrics (offline)."""
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import MagicMock
 
+from streaming import metrics as engine_metrics
 from streaming.postgres_sink import ensure_tables, to_row, upsert_candles
 from streaming.windows import WINDOW_SECONDS, aggregate, bucket_start
 
@@ -56,3 +58,28 @@ def test_ensure_tables_runs_ddl():
     conn.cursor.return_value.__enter__.return_value = cur
     ensure_tables(conn)
     assert "market_1m" in cur.execute.call_args[0][0]
+
+
+def test_engine_metrics_counters_and_latency():
+    engine_metrics.reset()
+    engine_metrics.note_event("BTCUSDT", 1_000)
+    engine_metrics.note_event("BTCUSDT", 2_000)
+    stats = engine_metrics.note_candle("BTCUSDT", 60, 100.0, now=130.0)
+    assert stats["processing_latency_s"] == 10.0  # 130 - (60+60)
+    snap = engine_metrics.snapshot()
+    assert snap["events_processed_total"] == 2
+    assert snap["windows_created_total"] == 1
+    assert snap["last_event"] == {"symbol": "BTCUSDT", "timestamp_ms": 2000}
+    assert snap["last_ohlcv"]["BTCUSDT"] == {"window_start": 60, "close": 100.0}
+    assert snap["max_processing_latency_s"] == 10.0
+
+
+def test_engine_metrics_dump(tmp_path):
+    engine_metrics.reset()
+    engine_metrics.note_event("ETHUSDT", 5_000)
+    path = str(tmp_path / "m.json")
+    assert engine_metrics.dump(path) is True
+    import orjson
+
+    assert orjson.loads(Path(path).read_bytes())["events_processed_total"] == 1
+    engine_metrics.reset()
