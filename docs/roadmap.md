@@ -21,6 +21,7 @@ Hạ tầng hiện tại (đã vượt plan gốc):
 - Healthcheck cả 6 services trong `docker-compose.yml` (postgres, code, webserver, daemon, kafka, consumer heartbeat).
 - Data quality: `quality/checks.py` pure (freshness/dup/null/row-count/schema/metrics) + 6 `@asset_check` đăng ký trong `defs`, test `tests/test_quality.py`.
 - Logger service: jlogger (JSON structured, Rust-backed) qua wrapper `ingestion/jlog.py` — consumer/producer/pathway log `info(msg, **fields)`; thiếu dep thì fallback stdlib cùng cú pháp. Dagster giữ `context.log` riêng.
+- Observability LOG→METRIC→HEALTH→ALERT: `scripts/metrics.py` (JSON), `scripts/alert.py` (ngưỡng + exit code), `scripts/status.py` (11 checks) — chi tiết `docs/observability.md`.
 - Libs tốc độ: msgspec (validate Struct), orjson (thay json), ciso8601 đọc ISO nhanh + dateutil fallback RFC-2822.
 
 Nguyên tắc phân biệt tool:
