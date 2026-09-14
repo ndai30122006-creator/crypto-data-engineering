@@ -1,5 +1,6 @@
 """RSS client bọc thành resource: config + fetch gom 1 chỗ."""
 import asyncio
+import random
 from pathlib import Path
 
 import feedparser
@@ -28,6 +29,7 @@ class RSSFeedResource(ConfigurableResource):
     feeds: dict[str, str] | None = None
     timeout: int = 30
     user_agent: str = "crypto-data-platform/1.0"
+    retries: int = 3
 
     def _feeds(self) -> dict[str, str]:
         if self.feeds:
@@ -40,12 +42,29 @@ class RSSFeedResource(ConfigurableResource):
     async def _fetch_one(
         self, client: httpx.AsyncClient, source: str, url: str
     ) -> list[tuple[str, dict]]:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        feed = feedparser.parse(sanitize_feed_xml(resp.content))
-        if feed.bozo and not feed.entries:
-            raise ValueError(f"parse failed: {feed.bozo_exception}")
-        return [(source, entry) for entry in feed.entries]
+        """Fetch 1 feed, retry/backoff khi timeout/mất mạng/5xx (fail sau N lần)."""
+        last_error: Exception | None = None
+        for attempt in range(self.retries):
+            try:
+                resp = await client.get(url)
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                # 4xx (trừ 429) là lỗi client, retry không khỏi → fail nhanh.
+                if exc.response.status_code != 429 and exc.response.status_code < 500:
+                    raise
+                last_error = exc
+            except httpx.HTTPError as exc:
+                last_error = exc
+            else:
+                feed = feedparser.parse(sanitize_feed_xml(resp.content))
+                if feed.bozo and not feed.entries:
+                    raise ValueError(f"parse failed: {feed.bozo_exception}")
+                return [(source, entry) for entry in feed.entries]
+            get_dagster_logger().warning(
+                f"RSS [{source}] attempt {attempt + 1}/{self.retries}: {last_error}"
+            )
+            await asyncio.sleep(2**attempt + random.uniform(0, 1))
+        raise RuntimeError(f"RSS [{source}] failed after {self.retries}: {last_error}")
 
     def fetch_raw(self) -> tuple[list[tuple[str, dict]], list[str]]:
         """Trả về (entries, errors). Mỗi entry là (source, feedparser_entry)."""

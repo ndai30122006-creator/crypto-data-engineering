@@ -1,12 +1,17 @@
 """Wrapper Kafka producer: JSON serialize, key = symbol.
 
 Key = symbol để cùng coin vào cùng partition (giữ thứ tự / coin).
+Delivery: errback log mọi lỗi gửi (không im lặng mất event),
+caller flush theo nhịp để đảm bảo event tới broker trước khi thoát.
 """
 import json
+import logging
 
 from kafka import KafkaProducer
 
 TOPIC_TRADES = "crypto.trades"
+
+log = logging.getLogger("kafka-producer")
 
 
 def build_producer(bootstrap_servers: str) -> KafkaProducer:
@@ -21,6 +26,18 @@ def build_producer(bootstrap_servers: str) -> KafkaProducer:
     )
 
 
-def publish(producer: KafkaProducer, topic: str, event: dict):
-    """Publish 1 event, key = symbol. Trả về Future (caller quyết định flush)."""
-    return producer.send(topic, key=event["symbol"], value=event)
+def publish(producer: KafkaProducer, topic: str, event: dict, on_error=None):
+    """Publish 1 event, key = symbol. Gắn errback log lỗi delivery.
+
+    on_error(err, event): hook tùy chọn (đếm metric / ghi dead-letter).
+    Trả về Future để caller flush theo nhịp.
+    """
+    future = producer.send(topic, key=event["symbol"], value=event)
+
+    def _failed(exc):
+        log.error("delivery failed topic=%s symbol=%s: %s", topic, event["symbol"], exc)
+        if on_error is not None:
+            on_error(exc, event)
+
+    future.add_errback(_failed)
+    return future

@@ -70,22 +70,63 @@ def test_beat_throttles(tmp_path):
     consumer._last_beat = 0.0
 
 
+def _cfg(tmp_path, **over):
+    cfg = {
+        "topic": "crypto.trades",
+        "heartbeat_file": str(tmp_path / "heartbeat"),
+        "flush_every": 10_000,
+    }
+    cfg.update(over)
+    return cfg
+
+
 def test_on_raw_message_publishes_and_beats(tmp_path):
     consumer._last_beat = 0.0
+    consumer._published = 0
+    consumer._flushed_at = 0
     import json
     from pathlib import Path
 
     producer = MagicMock()
-    path = str(tmp_path / "heartbeat")
-    on_raw_message(producer, "crypto.trades", json.dumps(RAW_TRADE), path)
+    on_raw_message(producer, _cfg(tmp_path), json.dumps(RAW_TRADE))
     assert producer.send.call_count == 1
-    assert Path(path).exists()  # nhịp tim đã đập
+    assert Path(_cfg(tmp_path)["heartbeat_file"]).exists()  # nhịp tim đã đập
     consumer._last_beat = 0.0
 
 
 def test_on_raw_message_skips_garbage(tmp_path):
     producer = MagicMock()
-    path = str(tmp_path / "heartbeat")
-    on_raw_message(producer, "crypto.trades", "not-json", path)
-    on_raw_message(producer, "crypto.trades", "{}", path)
+    cfg = _cfg(tmp_path)
+    on_raw_message(producer, cfg, "not-json")
+    on_raw_message(producer, cfg, "{}")
     assert producer.send.call_count == 0
+
+
+def test_on_raw_message_flushes_on_cadence(tmp_path):
+    consumer._published = 0
+    consumer._flushed_at = 0
+    consumer._last_beat = 0.0
+    import json
+
+    producer = MagicMock()
+    cfg = _cfg(tmp_path, flush_every=3)
+    for _ in range(3):
+        on_raw_message(producer, cfg, json.dumps(RAW_TRADE))
+    assert producer.flush.call_count == 1
+    consumer._published = 0
+    consumer._flushed_at = 0
+    consumer._last_beat = 0.0
+
+
+def test_publish_errback_logs_and_hooks():
+    from ingestion.kafka_producer import publish as real_publish
+
+    producer = MagicMock()
+    future = MagicMock()
+    producer.send.return_value = future
+    hooked = []
+    event = parse_trade(RAW_TRADE)
+    real_publish(producer, "crypto.trades", event, on_error=lambda e, ev: hooked.append(ev))
+    errback = future.add_errback.call_args[0][0]
+    errback(RuntimeError("boom"))
+    assert hooked == [event]

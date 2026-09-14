@@ -3,14 +3,21 @@
 Chạy: python -m ingestion.binance_consumer (trong container consumer).
 Env: KAFKA_BOOTSTRAP_SERVERS (default kafka:9092),
      KAFKA_TOPIC (default crypto.trades),
-     SYMBOLS (comma, default BTC,ETH,BNB,SOL,XRP/USDT).
+     SYMBOLS (comma, default BTC,ETH,BNB,SOL,XRP/USDT),
+     HEARTBEAT_FILE (default /tmp/binance-consumer.heartbeat),
+     FLUSH_EVERY (số event giữa 2 lần flush, default 500).
 
 Không dùng Dagster ở đây: service giữ kết nối WebSocket lâu,
 reconnect backoff, publish liên tục — Dagster chỉ orchestrate batch.
+
+Shutdown (SIGTERM/SIGINT từ docker stop): ngừng reconnect, đóng WS,
+flush producer (đảm bảo event đã gửi tới broker) rồi mới thoát.
 """
 import json
 import logging
 import os
+import signal
+import threading
 import time
 from pathlib import Path
 
@@ -29,7 +36,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("binance-consumer")
 
+_shutdown = threading.Event()
 _last_beat = 0.0
+_published = 0
+_flushed_at = 0
 
 
 def beat(path: str, interval: float = 10.0, now: float | None = None) -> bool:
@@ -64,7 +74,13 @@ def load_config() -> dict:
         "heartbeat_file": os.getenv(
             "HEARTBEAT_FILE", "/tmp/binance-consumer.heartbeat"
         ),
+        "flush_every": int(os.getenv("FLUSH_EVERY", "500")),
     }
+
+
+def _handle_signal(signum, _frame) -> None:
+    log.info("received signal %s, shutting down", signum)
+    _shutdown.set()
 
 
 def run_forever() -> None:
@@ -76,29 +92,49 @@ def run_forever() -> None:
         cfg["topic"],
         cfg["symbols"],
     )
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
     producer = build_producer(cfg["bootstrap_servers"])
     backoff = 1
 
-    while True:
+    try:
+        while not _shutdown.is_set():
+            ws: websocket.WebSocketApp | None = None
+            try:
+                ws = websocket.WebSocketApp(
+                    url,
+                    on_message=lambda _ws, raw: on_raw_message(
+                        producer, cfg, raw
+                    ),
+                    on_error=lambda _ws, err: log.warning("ws error: %s", err),
+                    on_close=lambda _ws, *a: log.warning("ws closed, reconnecting"),
+                )
+                if _shutdown.is_set():
+                    break
+                ws.run_forever(ping_interval=60, ping_timeout=10)
+            except Exception as exc:  # noqa: BLE001 - vòng lặp service không được chết
+                log.warning("consumer error: %s", exc)
+            if _shutdown.is_set():
+                break
+            # Đóng WS trước khi reconnect để không rò rỉ kết nối cũ.
+            if ws is not None:
+                ws.close()
+            log.info("reconnect in %ss", backoff)
+            _shutdown.wait(backoff)
+            backoff = min(backoff * 2, 60)
+    finally:
+        # Graceful shutdown: đẩy hết event còn kẹt rồi mới thoát.
+        log.info("flushing producer (published=%d)", _published)
         try:
-            ws = websocket.WebSocketApp(
-                url,
-                on_message=lambda _ws, raw: on_raw_message(
-                    producer, cfg["topic"], raw, cfg["heartbeat_file"]
-                ),
-                on_error=lambda _ws, err: log.warning("ws error: %s", err),
-                on_close=lambda _ws, *a: log.warning("ws closed, reconnecting"),
-            )
-            ws.run_forever(ping_interval=60, ping_timeout=10)
-        except Exception as exc:  # noqa: BLE001 - vòng lặp service không được chết
-            log.warning("consumer error: %s", exc)
-        log.info("reconnect in %ss", backoff)
-        time.sleep(backoff)
-        backoff = min(backoff * 2, 60)
+            producer.flush(timeout=15)
+        finally:
+            producer.close()
+        log.info("shutdown complete")
 
 
-def on_raw_message(producer, topic: str, raw: str, heartbeat_path: str) -> None:
+def on_raw_message(producer, cfg: dict, raw: str) -> None:
     """Parse 1 raw WS message → publish nếu là trade hợp lệ + đập nhịp tim."""
+    global _published, _flushed_at
     try:
         msg = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
@@ -107,8 +143,13 @@ def on_raw_message(producer, topic: str, raw: str, heartbeat_path: str) -> None:
     event = parse_trade(msg)
     if event is None:
         return
-    publish(producer, topic, event)
-    beat(heartbeat_path)
+    publish(producer, cfg["topic"], event)
+    _published += 1
+    # Flush theo nhịp: đảm bảo event tới broker kể cả khi crash giữa chừng.
+    if _published - _flushed_at >= cfg.get("flush_every", 500):
+        producer.flush()
+        _flushed_at = _published
+    beat(cfg["heartbeat_file"])
 
 
 if __name__ == "__main__":

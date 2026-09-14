@@ -90,6 +90,8 @@ Binance WebSocket ──▶ binance-consumer ──▶ Kafka (topic crypto.trade
 - `ingestion/kafka_producer.py` — wrapper producer, **key = symbol** (cùng coin → cùng partition, giữ thứ tự).
 - `ingestion/binance_consumer.py` — service thường trực: `WebSocketApp` + reconnect backoff (1s → max 60s), log chuẩn. Config qua env `KAFKA_BOOTSTRAP_SERVERS` / `KAFKA_TOPIC` / `SYMBOLS`.
 - Verify live: `kafka-console-consumer --topic crypto.trades` thấy event chảy (`{"symbol": "ETHUSDT", "price": ..., ...}`).
+- Reliability: RSS retry/backoff (4xx fail nhanh, async sleep); CoinGecko retry theo status (429/5xx + Retry-After + jitter, 4xx fail nhanh); producer errback log + flush theo nhịp (500) + flush/close khi SIGTERM/SIGINT; consumer heartbeat file cho healthcheck.
+- Tests: unit offline (`test_ingestion/reliability`, mock httpx) + integration (`test_integration.py`, chạy với `INTEGRATION=1` khi stack lên: Kafka roundtrip, pipeline → Kafka thật, Postgres roundtrip).
 - Còn lại: consumer chết 10 phút → restart đọc tiếp (offset commit) — tự kiểm chứng khi cần.
 
 ## 4. Phase 4 — Kafka → Pathway → OHLCV 1m ⬜
