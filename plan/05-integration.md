@@ -1,4 +1,6 @@
-# Phase 5 — Tích hợp: correlation, data quality, milestones
+# Phase 5 — Tích hợp: correlation, data quality, milestones ✅ DONE, live
+> Query correlation + milestones L1–L4 đều xong (xem `docs/roadmap.md` §5).
+> File này giữ thiết kế gốc.
 
 ## 1. News ↔ Market correlation
 

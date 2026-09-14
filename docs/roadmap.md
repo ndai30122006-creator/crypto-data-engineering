@@ -112,20 +112,14 @@ Kafka crypto.trades ──▶ Pathway ──▶ market_1m (OHLCV)
   (đúng data-time mọi thứ tự arrival). Producer kafka-python không có
   idempotence nên test assert OHLC chính xác + volume/count `>=`.
 - Verify live: 145 nến, đủ 5 symbols, OHLC hợp lệ (BTC 77522–77549).
-- Lưu ý: `earliest/latest` theo processing-time — đúng vì trades cùng symbol đi 1 partition nên giữ thứ tự; `pathway` marker Linux-only trong pyproject (không wheel Windows).
-
-- `market_1m`: `(symbol, window_start)` PK + open/high/low/close/volume/trade_count/`price_change_1m`.
-- `signals`: `signal_type` + `window_start` + `details` JSONB.
-- Metrics: `price_change_1m/5m/15m`; volume spike `volume_5m / avg_volume_1h > 3`.
-- Files: `streaming/pathway_pipeline.py` (`pw.kafka.read` → `windowby` 1 phút theo event_time → `reduce` → `pw.postgres.write`), `Dockerfile.pathway`.
-- Quality OHLCV vi phạm → `data_quality_errors`.
+- Chưa làm (giữ đúng scope): bảng `signals` (VOLUME_SPIKE...), `price_change_5m/15m`, volume-spike detector, đẩy vi phạm OHLCV vào `data_quality_errors` — ghi nhận ở §9TODO.
 - Verify sau 2–3 phút: `SELECT * FROM market_1m ORDER BY window_start DESC LIMIT 5;`
 
 ## 5. Phase 5 — Tích hợp ✅ query live
 
 1. **News ↔ Market correlation** (±10 phút quanh nến biến động > 1%): query 8 trong `database/queries.sql` đã chạy live — 0 match vì max biến động 1m hiện tại 0.13% < ngưỡng (đúng hành vi, không phải bug). `price_change` tính bằng `LAG(close)` vì sink để NULL cho stateless.
 2. **Data quality tổng**: Binance (`price/quantity > 0`, NOT NULL) · News (url/title NOT NULL, url UNIQUE) · OHLCV (high ≥ low/open/close...) → `data_quality_errors`.
-3. **Milestones**: L1 Batch ✅ (+ Phase 2 ✅) · L2 Streaming ⬜ · L3 Stream Processing ⬜ · L4 Integration ⬜.
+3. **Milestones**: L1 Batch ✅ · L2 Streaming ✅ (consumer → Kafka live) · L3 Stream Processing ✅ (Pathway → OHLCV live) · L4 Integration ✅ (chung 1 DB + query correlation live).
 4. **15 câu hỏi tự kiểm tra** (Kafka 5 / Dagster 4 / Pathway 3 / Postgres 3) — xem `plan/05-integration.md`.
 5. **Compose cuối mục tiêu**: kafka, postgres, dagster (code+webserver+daemon), binance-consumer, pathway (+ pgadmin optional) — `docker compose up` 1 lệnh.
 
@@ -143,6 +137,35 @@ Theo https://dagster.io/blog/a-practical-guide-to-dagster-resources.
 | Configuration | `DATABASE_URL` qua EnvVar ✅ | P5 Deployment tab | ⏳ check tay trên UI (secret chỉ hiện tên biến) |
 
 Thứ tự P1 → P2 → P3 → P4 → P5. Chi tiết từng practice xem `plan/06-resource-practice.md`, guide học xem `docs/resource-practice-guide.md`.
+
+## 7. Reliability (6–10) ✅
+
+- RSS retry/backoff (4xx fail nhanh, async sleep) · CoinGecko retry theo status (429/5xx + Retry-After + jitter, TransportError).
+- Producer errback log + flush nhịp (500) + flush/close khi SIGTERM/SIGINT; consumer heartbeat + graceful shutdown (đóng WS, `stop_grace_period: 30s`).
+- Tests: `tests/test_reliability.py` (mock httpx: retry, 429, 403 fail-nhanh) + `tests/test_integration.py` (`INTEGRATION=1`: Kafka roundtrip, pipeline → Kafka thật, Postgres roundtrip).
+
+## 8. Data quality (11–16) ✅
+
+- `quality/checks.py` pure: freshness, duplicates, nulls, row-count bounds, schema (msgspec), `summarize` metrics.
+- 6 `@asset_check` trong `defs`: news freshness/dup/null/count+schema, market count+schema+nulls, market metrics. Non-blocking (đỏ nhưng không chặn pipeline).
+
+## 9. Event-time correctness (Phase 2) ✅
+
+- Window theo **event time** (`timestamp` Binance), không phải processing time.
+- Out-of-order/late: đúng nhờ composite key `ts|price` + upsert (xem §4 bài học).
+- Regression live `tests/integration/test_event_time.py`: out-of-order, late, duplicate, multiple-symbols.
+
+## 10. E2E streaming (Phase 1) ✅
+
+- `tests/integration/test_streaming_e2e.py`: fake events → Kafka thật → engine live → `market_1m` → assert đủ 8 fields + idempotency republish + invalid bỏ qua + wait timeout 60s.
+- Helpers dùng chung `tests/integration/helpers.py` (env override, skip khi thiếu infra, cleanup theo symbol).
+
+## 11. Operations ✅
+
+- Observability LOG→METRIC→HEALTH→ALERT: `scripts/metrics.py` (JSON: runs, kafka lag/rate, binance counters, pathway engine, DB), `scripts/alert.py` (6 rules + exit code), `scripts/status.py` (dashboard) — xem `docs/observability.md`.
+- Failure handling: Kafka chết (retry vô hạn, không crash) · WS rớt (reconnect) · invalid reject+log+metric (hướng DLQ) · Postgres chết (sink retry 3 + DLQ file + raise to).
+- Migrations: `scripts/migrate.py` + `database/migrations/` (versioned, idempotent). Secrets: env-only (`.env` ignore khỏi git).
+- Libs: msgspec (validate), orjson (JSON), ciso8601 + dateutil-fallback (ngày), jlogger (log JSON services; Dagster giữ `context.log` riêng).
 
 ## Nguồn
 
