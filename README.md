@@ -15,6 +15,9 @@ Dagster, store queryable data in PostgreSQL.
 - [x] News ↔ market correlation queries (query 8, LAG-based)
 - [x] Data quality: 6 asset checks + pure checks module
 - [x] Reliability: retries, delivery handling, graceful shutdown, integration tests
+- [x] Event-time E2E: out-of-order, late, duplicate, multi-symbol (engine live)
+- [x] Observability LOG→METRIC→HEALTH→ALERT: metrics, alert rules, status dashboard
+- [x] Failure handling: Kafka/WS retry, invalid reject, sink retry + DLQ file
 
 ## Architecture
 
@@ -64,7 +67,7 @@ when `DAGSTER_ENVIRONMENT=local`). `market_1m` is global (streaming).
 | psycopg2-binary 2.9.13 | Postgres driver |
 | Docker Compose | 7 services: postgres, kafka, dagster-code (gRPC 4000), webserver, daemon, binance-consumer, pathway |
 | uv | Package + project manager (`pyproject.toml` + `uv.lock`) |
-| pytest 9.1.1 | 56 unit tests (offline) + integration tests (`INTEGRATION=1`) |
+| pytest 9.1.1 | 86 unit tests (offline) + integration tests (`INTEGRATION=1`) |
 
 ## Project structure
 
@@ -85,10 +88,10 @@ dagster_project/
   assets/                 news_assets (3) + market_assets (3)
 ingestion/                Binance WS → Kafka (reconnect, heartbeat, graceful shutdown)
 streaming/                Pathway OHLCV engine + upsert sink + correlation
-scripts/                  status.py (health tổng), migrate.py (migrations)
-tests/                    unit (offline) + integration (INTEGRATION=1)
-plan/                     roadmap + phase 01–06 plans
-docs/                     roadmap + learning guides
+scripts/                  status.py (dashboard), metrics.py (JSON), alert.py (rules), migrate.py
+tests/                    unit (offline) + integration (INTEGRATION=1: streaming E2E, event-time)
+plan/                     roadmap + phase 01–07 plans
+docs/                     roadmap + observability + learning guides
 ```
 
 ## Quickstart
@@ -112,7 +115,9 @@ docker exec crypto-postgres psql -U admin -d crypto_db -c "SELECT source, count(
     `$env:DATABASE_URL="..."; $env:DAGSTER_ENVIRONMENT="local"`
 - Integration tests (cần stack Docker đang lên):
   `$env:INTEGRATION="1"; uv run pytest tests/ -q`
-- Health tổng: `uv run python scripts/status.py` (containers, API, Kafka, DB, freshness)
+- Health tổng: `uv run python scripts/status.py` (dashboard: health, flow, data)
+- Metrics máy đọc: `uv run python scripts/metrics.py` (JSON)
+- Alert theo ngưỡng: `uv run python scripts/alert.py` (exit 1 khi đỏ, xem `docs/observability.md`)
 - Migrations: `uv run python scripts/migrate.py`
 - Stop: `docker compose down` (data kept in `pgdata` volume)
 
