@@ -5,16 +5,16 @@ services:
     image: postgres:16
     container_name: crypto-postgres
     environment:
-      POSTGRES_DB: crypto_db
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: ${POSTGRES_DB:-crypto_db}
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d crypto_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-crypto_db}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -28,7 +28,7 @@ services:
     expose:
       - "4000"
     environment:
-      DATABASE_URL: postgresql://admin:secret@postgres:5432/crypto_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-crypto_db}
       DAGSTER_ENVIRONMENT: local
     volumes:
       - ./dagster_project:/opt/dagster/dagster_project
@@ -87,7 +87,9 @@ services:
       dagster-code:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "dagster instance info"]
+      # Kiểm tra process daemon thật qua /proc (stdlib, không cần psutil):
+      # daemon chết mà instance vẫn load được thì check này đỏ.
+      test: ["CMD-SHELL", "python -c \"import os,sys; sys.exit(0 if any('dagster-daemon' in open('/proc/'+p+'/cmdline','rb').read().decode(errors='ignore') for p in os.listdir('/proc') if p.isdigit()) else 1)\""]
       interval: 30s
       timeout: 10s
       retries: 3
