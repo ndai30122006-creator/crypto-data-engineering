@@ -19,6 +19,7 @@ Quy ước: services dùng jlogger, Dagster dùng hệ log riêng — không l�
 
 - `dagster_runs.{success,failed}`: đếm `RUN_SUCCESS` vs `RUN_FAILURE`/`STEP_FAILURE`/`DagsterLaunchFailedError` trong log 60 phút
 - `db.news_1h`, `db.candles_10m`, `db.trades_per_min_approx` (sum `trade_count` / 10), `db.newest_candle_age_min`
+- `binance.*`: counters consumer (`received/invalid/published/failures/reconnects`) + `events_lost = received - published - invalid - failures` (phải = 0)
 - `trades_per_min` là xấp xỉ (không phải đếm Kafka offsets) — đủ để thấy trend, không dùng tính tiền
 
 ## HEALTH (khỏe hay không)
@@ -36,6 +37,7 @@ Quy ước: services dùng jlogger, Dagster dùng hệ log riêng — không l�
 | `candles_10m` | < 20 (`ALERT_MIN_CANDLES_10M`) | topic `crypto.trades` còn event không |
 | `news_1h` | < 1 (`ALERT_MIN_NEWS_1H`) | RSS/schedule `news_job` ở Automation tab |
 | `failed_runs` | > 0 (`ALERT_MAX_FAILED_RUNS`) | Runs tab + daemon logs |
+| `events_lost` | > 0 (`ALERT_MAX_EVENTS_LOST`) | consumer làm mất event — check bug code path |
 | `db unreachable` | — | `crypto-postgres` sống không |
 
 Chạy định kỳ bằng Task Scheduler/cron gọi `alert.py` (exit code) — chưa cần server riêng.

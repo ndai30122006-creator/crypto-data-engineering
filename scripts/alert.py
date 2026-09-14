@@ -21,12 +21,16 @@ CHECKS = [
      "không có tin mới — check RSS/schedule news_job (Automation tab)"),
     ("failed_runs", "ALERT_MAX_FAILED_RUNS", 0, "gt",
      "run Dagster fail — xem Runs tab + daemon logs"),
+    ("events_lost", "ALERT_MAX_EVENTS_LOST", 0, "gt",
+     "consumer làm mất event (received != published+invalid+failures) — check bug code path"),
 ]
 
 
 def _value(metrics: dict, key: str):
     if key == "failed_runs":
         return metrics.get("dagster_runs", {}).get("failed")
+    if key == "events_lost":
+        return metrics.get("binance", {}).get("events_lost")
     return metrics.get("db", {}).get(key)
 
 
@@ -38,6 +42,12 @@ def evaluate(metrics: dict, env: dict | None = None) -> list[str]:
     if isinstance(db, dict) and "error" in db:
         return [f"ALERT db unreachable: {db['error']} — check postgres container"]
     for key, env_name, default, op, action in CHECKS:
+        # Consumer chưa dump file (mới start) → bỏ qua rule này,
+        # liveness đã có healthcheck heartbeat lo.
+        if key == "events_lost":
+            section = metrics.get("binance")
+            if not isinstance(section, dict) or "error" in section:
+                continue
         threshold = float(env.get(env_name, default))
         value = _value(metrics, key)
         if value is None:

@@ -74,16 +74,22 @@ def _cfg(tmp_path, **over):
     cfg = {
         "topic": "crypto.trades",
         "heartbeat_file": str(tmp_path / "heartbeat"),
+        "metrics_file": str(tmp_path / "metrics.json"),
         "flush_every": 10_000,
     }
     cfg.update(over)
     return cfg
 
 
-def test_on_raw_message_publishes_and_beats(tmp_path):
+def _reset_consumer_state() -> None:
     consumer._last_beat = 0.0
-    consumer._published = 0
     consumer._flushed_at = 0
+    for key in consumer._counters:
+        consumer._counters[key] = 0
+
+
+def test_on_raw_message_publishes_and_beats(tmp_path):
+    _reset_consumer_state()
     from pathlib import Path
 
     import orjson
@@ -92,15 +98,21 @@ def test_on_raw_message_publishes_and_beats(tmp_path):
     on_raw_message(producer, _cfg(tmp_path), orjson.dumps(RAW_TRADE).decode())
     assert producer.send.call_count == 1
     assert Path(_cfg(tmp_path)["heartbeat_file"]).exists()  # nhịp tim đã đập
-    consumer._last_beat = 0.0
+    assert Path(_cfg(tmp_path)["metrics_file"]).exists()  # metrics đã dump
+    assert consumer.snapshot_metrics()["events_published_total"] == 1
+    _reset_consumer_state()
 
 
-def test_on_raw_message_skips_garbage(tmp_path):
+def test_on_raw_message_counts_invalid(tmp_path):
+    _reset_consumer_state()
     producer = MagicMock()
     cfg = _cfg(tmp_path)
     on_raw_message(producer, cfg, "not-json")
     on_raw_message(producer, cfg, "{}")
     assert producer.send.call_count == 0
+    assert consumer.snapshot_metrics()["events_invalid_total"] == 2
+    assert consumer.snapshot_metrics()["events_received_total"] == 2
+    _reset_consumer_state()
 
 
 def test_handle_signal_closes_ws_and_flags_shutdown():
@@ -125,9 +137,7 @@ def test_load_config_bad_flush_every_falls_back():
 
 
 def test_on_raw_message_flushes_on_cadence(tmp_path):
-    consumer._published = 0
-    consumer._flushed_at = 0
-    consumer._last_beat = 0.0
+    _reset_consumer_state()
     import orjson
 
     producer = MagicMock()
@@ -135,9 +145,8 @@ def test_on_raw_message_flushes_on_cadence(tmp_path):
     for _ in range(3):
         on_raw_message(producer, cfg, orjson.dumps(RAW_TRADE).decode())
     assert producer.flush.call_count == 1
-    consumer._published = 0
-    consumer._flushed_at = 0
-    consumer._last_beat = 0.0
+    assert consumer.snapshot_metrics()["events_published_total"] == 3
+    _reset_consumer_state()
 
 
 def test_publish_errback_logs_and_hooks():

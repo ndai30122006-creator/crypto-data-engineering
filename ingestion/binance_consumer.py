@@ -35,8 +35,29 @@ log = get_logger("binance-consumer")
 _shutdown = threading.Event()
 _current_ws: websocket.WebSocketApp | None = None
 _last_beat = 0.0
-_published = 0
 _flushed_at = 0
+_started_at = time.time()
+_counters = {
+    "events_received_total": 0,
+    "events_invalid_total": 0,
+    "events_published_total": 0,
+    "publish_failures_total": 0,
+    "reconnect_total": 0,
+}
+
+
+def snapshot_metrics() -> dict:
+    """Counters hiện tại + uptime (cho metrics file / status)."""
+    return {**_counters, "uptime_seconds": round(time.time() - _started_at, 1)}
+
+
+def dump_metrics(path: str) -> bool:
+    """Ghi counters ra JSON file (metrics script đọc qua docker exec)."""
+    try:
+        Path(path).write_bytes(orjson.dumps(snapshot_metrics()))
+        return True
+    except OSError:
+        return False
 
 
 def beat(path: str, interval: float = 10.0, now: float | None = None) -> bool:
@@ -72,6 +93,7 @@ def load_config() -> dict:
             "HEARTBEAT_FILE", "/tmp/binance-consumer.heartbeat"
         ),
         "flush_every": _positive_int(os.getenv("FLUSH_EVERY"), 500),
+        "metrics_file": os.getenv("METRICS_FILE", "/tmp/binance-metrics.json"),
     }
 
 
@@ -144,11 +166,12 @@ def run_forever() -> None:
             if ws is not None:
                 ws.close()
             log.info("reconnect", backoff_s=backoff)
+            _counters["reconnect_total"] += 1
             _shutdown.wait(backoff)
             backoff = min(backoff * 2, 60)
     finally:
         # Graceful shutdown: đẩy hết event còn kẹt rồi mới thoát.
-        log.info("flushing producer", published=_published)
+        log.info("flushing producer", published=_counters["events_published_total"])
         try:
             producer.flush(timeout=15)
         finally:
@@ -158,22 +181,30 @@ def run_forever() -> None:
 
 def on_raw_message(producer, cfg: dict, raw: str) -> None:
     """Parse 1 raw WS message → publish nếu là trade hợp lệ + đập nhịp tim."""
-    global _published, _flushed_at
+    global _flushed_at
+    _counters["events_received_total"] += 1
     try:
         msg = orjson.loads(raw)
     except (orjson.JSONDecodeError, TypeError):
         log.warning("skip non-JSON message")
+        _counters["events_invalid_total"] += 1
         return
     event = parse_trade(msg)
     if event is None:
+        _counters["events_invalid_total"] += 1
         return
-    publish(producer, cfg["topic"], event)
-    _published += 1
+
+    def _failed(exc, _event) -> None:
+        _counters["publish_failures_total"] += 1
+
+    publish(producer, cfg["topic"], event, on_error=_failed)
+    _counters["events_published_total"] += 1
     # Flush theo nhịp: đảm bảo event tới broker kể cả khi crash giữa chừng.
-    if _published - _flushed_at >= cfg.get("flush_every", 500):
+    if _counters["events_published_total"] - _flushed_at >= cfg.get("flush_every", 500):
         producer.flush()
-        _flushed_at = _published
-    beat(cfg["heartbeat_file"])
+        _flushed_at = _counters["events_published_total"]
+    if beat(cfg["heartbeat_file"]):
+        dump_metrics(cfg.get("metrics_file", "/tmp/binance-metrics.json"))
 
 
 if __name__ == "__main__":

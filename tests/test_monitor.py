@@ -13,6 +13,9 @@ from metrics import collect
 def _metrics(**over):
     base = {
         "dagster_runs": {"success": 5, "failed": 0},
+        "binance": {"events_received_total": 100, "events_published_total": 100,
+                    "events_invalid_total": 0, "publish_failures_total": 0,
+                    "events_lost": 0},
         "db": {"news_1h": 10, "candles_10m": 50, "newest_candle_age_min": 2.0},
     }
     for section, values in over.items():
@@ -28,13 +31,20 @@ def test_evaluate_fires_each_rule():
     alerts = evaluate(
         _metrics(
             dagster_runs={"success": 0, "failed": 2},
+            binance={"events_lost": 3},
             db={"news_1h": 0, "candles_10m": 5, "newest_candle_age_min": 99.0},
         ),
         env={},
     )
-    assert len(alerts) == 4
+    assert len(alerts) == 5
     assert any("failed_runs=2" in a for a in alerts)
     assert any("candles_10m=5" in a for a in alerts)
+    assert any("events_lost=3" in a for a in alerts)
+
+
+def test_evaluate_skips_lost_rule_when_no_consumer_metrics():
+    alerts = evaluate(_metrics(binance={"error": "no file"}), env={})
+    assert not any("events_lost" in a for a in alerts)
 
 
 def test_evaluate_db_unreachable():

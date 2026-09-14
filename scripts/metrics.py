@@ -22,6 +22,32 @@ def _docker_logs(name: str, since: str) -> str:
     return (proc.stdout or "") + (proc.stderr or "")
 
 
+def binance_consumer() -> dict:
+    """Counters consumer (received/invalid/published/failures/reconnects).
+
+    Đọc file metrics consumer dump (HEARTBEAT chung nhịp 10s).
+    """
+    try:
+        proc = subprocess.run(
+            ["docker", "exec", "crypto-binance-consumer",
+             "cat", "/tmp/binance-metrics.json"],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"error": f"docker exec lỗi: {exc}"}
+    if proc.returncode != 0:
+        return {"error": "chưa có metrics file (consumer mới start?)"}
+    try:
+        data = json.loads(proc.stdout)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        return {"error": f"metrics file hỏng: {exc}"}
+    accounted = (data.get("events_published_total", 0)
+                 + data.get("events_invalid_total", 0)
+                 + data.get("publish_failures_total", 0))
+    data["events_lost"] = data.get("events_received_total", 0) - accounted
+    return data
+
+
 def dagster_runs(since: str = "60m") -> dict:
     """Đếm kết quả runs từ log daemon+code (RUN_SUCCESS vs FAILURE/ERROR)."""
     logs = _docker_logs("crypto-dagster-daemon", since)
@@ -86,6 +112,7 @@ def collect(minutes: int = DEFAULT_MINUTES) -> dict:
         "at": datetime.datetime.now(datetime.UTC).isoformat(),
         "window_minutes": minutes,
         "dagster_runs": dagster_runs(f"{minutes}m"),
+        "binance": binance_consumer(),
         "db": db_stats(),
     }
 
