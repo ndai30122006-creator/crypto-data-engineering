@@ -10,9 +10,11 @@ Dagster, store queryable data in PostgreSQL.
 - [x] News pipeline (RSS → Dagster → PostgreSQL) — live, schedule mỗi 5 phút
 - [x] Market-cap snapshot job (hourly, CoinGecko top 50)
 - [x] Resource practice P1–P4 (RSS/CoinGecko/Postgres resources, env-aware tables, mock tests)
-- [ ] Binance → Kafka ingestion (realtime)
-- [ ] Kafka → Pathway → OHLCV 1m (stream processing)
-- [ ] News ↔ market correlation queries
+- [x] Binance → Kafka ingestion (realtime, 5 cặp)
+- [x] Kafka → Pathway → OHLCV 1m (stream processing → `market_1m`)
+- [x] News ↔ market correlation queries (query 8, LAG-based)
+- [x] Data quality: 6 asset checks + pure checks module
+- [x] Reliability: retries, delivery handling, graceful shutdown, integration tests
 
 ## Architecture
 
@@ -21,7 +23,7 @@ Crypto News API / RSS (CoinDesk, CoinTelegraph, BitcoinMag, Google News)
         │  every 5 min (news_job_schedule)
         ▼
 ┌───────────────┐
-│    Dagster    │
+│    Dagster    │  6 assets + 6 asset checks (freshness/dup/null/count/schema)
 │  raw_news     │  RSSFeedResource fetch 4 RSS, validate with Pydantic
 │  cleaned_news │  strip HTML, extract symbols, sentiment, dedupe
 │  loaded_news   │  PostgresResource.insert_news, skip existing URL
@@ -35,44 +37,55 @@ Crypto News API / RSS (CoinDesk, CoinTelegraph, BitcoinMag, Google News)
 CoinGecko API ── hourly (market_job_schedule) ──▶ fetch_market
         ──▶ validate_market ──▶ loaded_snapshot ──▶ crypto_market_snapshot
                                                   └─▶ data_quality_errors (bad records)
+
+Binance WS ──▶ binance-consumer ──▶ Kafka (crypto.trades)
+        ──▶ Pathway (tumbling 1m OHLCV) ──▶ market_1m ──┐
+                                                        ├─▶ correlation query (news ±10m, |Δ|>1%)
+Crypto News ────────────────────────────────────────────┘
 ```
 
 Tables are env-suffixed outside prod (e.g. `crypto_news_local`
-when `DAGSTER_ENVIRONMENT=local`).
+when `DAGSTER_ENVIRONMENT=local`). `market_1m` is global (streaming).
 
 ## Tech stack
 
 | Tech | Role |
 |---|---|
 | Python 3.12 | Pipeline code |
-| Dagster | Orchestration (assets + job + schedule) |
+| Dagster | Orchestration (6 assets + 6 checks, jobs + schedules) |
 | PostgreSQL 16 | Storage (`crypto_db`) |
-| httpx + feedparser | RSS fetch & parse |
+| Kafka (KRaft, single broker) | Realtime trades buffer (`crypto.trades`) |
+| Pathway 0.32.1 | Stream processing (tumbling 1m OHLCV, Linux-only) |
+| httpx + feedparser | RSS fetch & parse (retry/backoff) |
 | Pydantic | Data validation |
 | psycopg2 | Postgres driver |
-| Docker Compose | 4 services: postgres, dagster-code (gRPC 4000), webserver, daemon |
+| Docker Compose | 7 services: postgres, kafka, dagster-code (gRPC 4000), webserver, daemon, binance-consumer, pathway |
 | uv | Package + project manager (`pyproject.toml` + `uv.lock`) |
-| pytest | 20 unit tests (pure logic + resource mocks, offline) |
+| pytest | 56 unit tests (offline) + integration tests (`INTEGRATION=1`) |
 
 ## Project structure
 
 ```
-docker-compose.yml        postgres + dagster-code (gRPC 4000) + webserver + daemon + kafka + binance-consumer + pathway
-Dockerfile.dagster + Dockerfile.consumer
+docker-compose.yml        7 services (postgres, kafka, dagster ×3, consumer, pathway)
+Dockerfile.dagster + Dockerfile.consumer + Dockerfile.pathway
 pyproject.toml + uv.lock (.python-version: 3.12)
 workspace.yaml            grpc_server dagster-code:4000 (location: crypto-data-platform)
 config/config.yaml        4 RSS feed URLs
-database/schema.sql       crypto_news, crypto_market_snapshot, data_quality_errors
-database/queries.sql      8 analytical queries
+database/schema.sql       crypto_news, crypto_market_snapshot, data_quality_errors, market_1m
+database/migrations/      versioned schema changes (scripts/migrate.py)
+database/queries.sql      8 analytical queries (incl. correlation)
 dagster_project/
-  definitions.py          2 jobs + 2 schedules + 3 resources
-  resources/              RSSFeedResource, CoinGeckoResource, PostgresResource (env-aware)
-  news/                   parser, cleaner, schemas (pure logic, no IO)
-  market/                 schemas, validator (pure logic, no IO)
+  definitions.py          2 jobs + 2 schedules + 6 checks + 3 resources
+  resources/              RSSFeedResource, CoinGeckoResource, PostgresResource (env-aware, retry)
+  news/ + market/         pure logic (parser, cleaner, schemas, validator)
+  quality/                pure checks + 6 asset checks
   assets/                 news_assets (3) + market_assets (3)
-tests/                    test_cleaner, test_market, test_resources (20 tests)
+ingestion/                Binance WS → Kafka (reconnect, heartbeat, graceful shutdown)
+streaming/                Pathway OHLCV engine + upsert sink + correlation
+scripts/                  status.py (health tổng), migrate.py (migrations)
+tests/                    unit (offline) + integration (INTEGRATION=1)
 plan/                     roadmap + phase 01–06 plans
-docs/                     learning guides (news, market, correlation, resources, overview)
+docs/                     roadmap + learning guides
 ```
 
 ## Quickstart
@@ -94,7 +107,18 @@ docker exec crypto-postgres psql -U admin -d crypto_db -c "SELECT source, count(
 - Run tests (local): `uv sync; uv run pytest tests/ -q`
   - Local Dagster CLI needs env vars first:
     `$env:DATABASE_URL="..."; $env:DAGSTER_ENVIRONMENT="local"`
+- Integration tests (cần stack Docker đang lên):
+  `$env:INTEGRATION="1"; uv run pytest tests/ -q`
+- Health tổng: `uv run python scripts/status.py` (containers, API, Kafka, DB, freshness)
+- Migrations: `uv run python scripts/migrate.py`
 - Stop: `docker compose down` (data kept in `pgdata` volume)
+
+## Secrets
+
+- Không hard-code credentials: compose đọc `${POSTGRES_DB/USER/PASSWORD:-default}`,
+  code đọc `DATABASE_URL`/`DAGSTER_ENVIRONMENT` qua `EnvVar` (Dagster UI chỉ hiện tên biến).
+- Override local: `copy .env.example .env` rồi sửa — `.env` đã ignore khỏi git.
+- Quy ước: secret chỉ đi qua env, không bao giờ vào code/image/docs.
 
 ## Notes
 
