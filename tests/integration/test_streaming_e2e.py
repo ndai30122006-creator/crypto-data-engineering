@@ -122,13 +122,13 @@ def test_streaming_e2e_fake_to_postgres():
             time.sleep(2)
 
         assert row is not None, "engine không ghi nến E2ETEST trong 60s"
-        from datetime import datetime, timezone
+        from datetime import UTC, datetime
 
         sym, w_start, o, h, low, c, vol, cnt = (
             row[0], row[1], float(row[2]), float(row[3]),
             float(row[4]), float(row[5]), float(row[6]), row[7],
         )
-        expected_bucket = datetime.fromtimestamp(T0 // 1000 // 60 * 60, tz=timezone.utc)
+        expected_bucket = datetime.fromtimestamp(T0 // 1000 // 60 * 60, tz=UTC)
         assert sym == SYMBOL
         assert w_start == expected_bucket
         # OHLC phải chính xác; volume/count dùng >= vì producer retry
