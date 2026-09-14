@@ -102,7 +102,8 @@ def test_streaming_e2e_fake_to_postgres():
             producer.close()
 
         row = None
-        deadline = time.time() + 120
+        # Chờ engine xử lý có timeout 60s — không treo vô hạn nếu pipeline kẹt.
+        deadline = time.time() + 60
         while time.time() < deadline:
             conn = _pg()
             try:
@@ -115,11 +116,11 @@ def test_streaming_e2e_fake_to_postgres():
                     row = cur.fetchone()
             finally:
                 conn.close()
-            if row and row[5] == len(FAKE_TRADES):
+            if row and row[5] >= len(FAKE_TRADES):
                 break
-            time.sleep(5)
+            time.sleep(2)
 
-        assert row is not None, "engine không ghi nến E2ETEST trong 120s"
+        assert row is not None, "engine không ghi nến E2ETEST trong 60s"
         o, h, low, c, vol, cnt = (float(row[0]), float(row[1]), float(row[2]),
                                   float(row[3]), float(row[4]), row[5])
         # OHLC phải chính xác; volume/count dùng >= vì producer retry
