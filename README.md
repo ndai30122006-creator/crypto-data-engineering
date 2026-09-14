@@ -24,7 +24,7 @@ Crypto News API / RSS (CoinDesk, CoinTelegraph, BitcoinMag, Google News)
         ▼
 ┌───────────────┐
 │    Dagster    │  6 assets + 6 asset checks (freshness/dup/null/count/schema)
-│  raw_news     │  RSSFeedResource fetch 4 RSS, validate with Pydantic
+│  raw_news     │  RSSFeedResource fetch 4 RSS, validate with msgspec
 │  cleaned_news │  strip HTML, extract symbols, sentiment, dedupe
 │  loaded_news   │  PostgresResource.insert_news, skip existing URL
 └───────┬───────┘
@@ -94,7 +94,7 @@ docs/                     roadmap + learning guides
 Requirements: Docker Desktop with WSL2 backend (Windows).
 
 ```powershell
-docker compose up --build
+docker compose up --build -d
 ```
 
 - Dagster UI: http://localhost:3000
@@ -128,3 +128,7 @@ docker exec crypto-postgres psql -U admin -d crypto_db -c "SELECT source, count(
   `<description>` → stripped in `sanitize_feed_xml()` (`news/parser.py`).
 - Postgres here is OLTP/operational storage + light analytics, not a
   dedicated OLAP store.
+- Dates: `ciso8601` fast path for ISO-8601, `dateutil` fallback for RFC-2822
+  (RSS pubDates) — see `news/parser.py`.
+- Schemas use msgspec Structs: validation happens on `convert`/decode,
+  not on direct construction — assets always go through `convert`.
