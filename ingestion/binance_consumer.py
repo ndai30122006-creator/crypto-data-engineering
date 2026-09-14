@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 
 import websocket
 
@@ -28,6 +29,27 @@ logging.basicConfig(
 )
 log = logging.getLogger("binance-consumer")
 
+_last_beat = 0.0
+
+
+def beat(path: str, interval: float = 10.0, now: float | None = None) -> bool:
+    """Touch heartbeat file tối đa mỗi `interval` giây.
+
+    Healthcheck của Docker đọc độ tươi file này: process treo hoặc
+    WS chết mà process còn sống → file cũ → unhealthy.
+    Trả True nếu vừa touch (để test được mà không cần sleep).
+    """
+    global _last_beat
+    t = now if now is not None else time.time()
+    if t - _last_beat < interval and os.path.exists(path):
+        return False
+    try:
+        Path(path).touch()
+    except OSError:
+        return False
+    _last_beat = t
+    return True
+
 
 def load_config() -> dict:
     symbols = [
@@ -39,6 +61,9 @@ def load_config() -> dict:
         "bootstrap_servers": os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"),
         "topic": os.getenv("KAFKA_TOPIC", TOPIC_TRADES),
         "symbols": symbols or list(DEFAULT_SYMBOLS),
+        "heartbeat_file": os.getenv(
+            "HEARTBEAT_FILE", "/tmp/binance-consumer.heartbeat"
+        ),
     }
 
 
@@ -59,7 +84,7 @@ def run_forever() -> None:
             ws = websocket.WebSocketApp(
                 url,
                 on_message=lambda _ws, raw: on_raw_message(
-                    producer, cfg["topic"], raw
+                    producer, cfg["topic"], raw, cfg["heartbeat_file"]
                 ),
                 on_error=lambda _ws, err: log.warning("ws error: %s", err),
                 on_close=lambda _ws, *a: log.warning("ws closed, reconnecting"),
@@ -72,8 +97,8 @@ def run_forever() -> None:
         backoff = min(backoff * 2, 60)
 
 
-def on_raw_message(producer, topic: str, raw: str) -> None:
-    """Parse 1 raw WS message → publish nếu là trade hợp lệ."""
+def on_raw_message(producer, topic: str, raw: str, heartbeat_path: str) -> None:
+    """Parse 1 raw WS message → publish nếu là trade hợp lệ + đập nhịp tim."""
     try:
         msg = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
@@ -83,6 +108,7 @@ def on_raw_message(producer, topic: str, raw: str) -> None:
     if event is None:
         return
     publish(producer, topic, event)
+    beat(heartbeat_path)
 
 
 if __name__ == "__main__":

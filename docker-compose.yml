@@ -132,11 +132,20 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: crypto.trades
       SYMBOLS: BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT
+      HEARTBEAT_FILE: /tmp/binance-consumer.heartbeat
     volumes:
       - ./ingestion:/opt/consumer/ingestion
     depends_on:
       kafka:
         condition: service_healthy
+    healthcheck:
+      # File nhịp tim do consumer touch mỗi khi publish (tối đa 10s/lần).
+      # Treo process hoặc WS chết → file cũ hơn 120s → unhealthy.
+      test: ["CMD-SHELL", "python -c \"import os,sys,time; p='/tmp/binance-consumer.heartbeat'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < 120 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
     restart: unless-stopped
 
 volumes:

@@ -1,6 +1,8 @@
 """Unit tests cho ingestion (offline: không mạng, không Kafka)."""
 from unittest.mock import MagicMock
 
+import ingestion.binance_consumer as consumer
+from ingestion.binance_consumer import beat, on_raw_message
 from ingestion.events import (
     combined_stream_url,
     parse_trade,
@@ -57,3 +59,33 @@ def test_publish_uses_symbol_as_key():
     _, kwargs = producer.send.call_args
     assert kwargs["key"] == "BTCUSDT"  # cùng coin → cùng partition
     assert kwargs["value"] == event
+
+
+def test_beat_throttles(tmp_path):
+    consumer._last_beat = 0.0
+    path = str(tmp_path / "heartbeat")
+    assert beat(path, interval=10.0, now=100.0) is True
+    assert beat(path, interval=10.0, now=105.0) is False  # chưa đủ 10s
+    assert beat(path, interval=10.0, now=111.0) is True
+    consumer._last_beat = 0.0
+
+
+def test_on_raw_message_publishes_and_beats(tmp_path):
+    consumer._last_beat = 0.0
+    import json
+    from pathlib import Path
+
+    producer = MagicMock()
+    path = str(tmp_path / "heartbeat")
+    on_raw_message(producer, "crypto.trades", json.dumps(RAW_TRADE), path)
+    assert producer.send.call_count == 1
+    assert Path(path).exists()  # nhịp tim đã đập
+    consumer._last_beat = 0.0
+
+
+def test_on_raw_message_skips_garbage(tmp_path):
+    producer = MagicMock()
+    path = str(tmp_path / "heartbeat")
+    on_raw_message(producer, "crypto.trades", "not-json", path)
+    on_raw_message(producer, "crypto.trades", "{}", path)
+    assert producer.send.call_count == 0
