@@ -146,6 +146,7 @@ def test_on_raw_message_flushes_on_cadence(tmp_path):
         on_raw_message(producer, cfg, orjson.dumps(RAW_TRADE).decode())
     assert producer.flush.call_count == 1
     assert consumer.snapshot_metrics()["events_published_total"] == 3
+    assert consumer.snapshot_metrics()["last_flush_latency_s"] >= 0.0
     _reset_consumer_state()
 
 

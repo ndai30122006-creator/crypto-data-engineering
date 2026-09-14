@@ -43,6 +43,8 @@ _counters = {
     "events_published_total": 0,
     "publish_failures_total": 0,
     "reconnect_total": 0,
+    "last_flush_latency_s": 0.0,
+    "max_flush_latency_s": 0.0,
 }
 
 
@@ -200,8 +202,15 @@ def on_raw_message(producer, cfg: dict, raw: str) -> None:
     publish(producer, cfg["topic"], event, on_error=_failed)
     _counters["events_published_total"] += 1
     # Flush theo nhịp: đảm bảo event tới broker kể cả khi crash giữa chừng.
+    # Đo latency flush = proxy cho publish latency (send bất đồng bộ).
     if _counters["events_published_total"] - _flushed_at >= cfg.get("flush_every", 500):
+        started = time.time()
         producer.flush()
+        latency = time.time() - started
+        _counters["last_flush_latency_s"] = round(latency, 3)
+        _counters["max_flush_latency_s"] = round(
+            max(_counters["max_flush_latency_s"], latency), 3
+        )
         _flushed_at = _counters["events_published_total"]
     if beat(cfg["heartbeat_file"]):
         dump_metrics(cfg.get("metrics_file", "/tmp/binance-metrics.json"))

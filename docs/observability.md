@@ -19,7 +19,8 @@ Quy ước: services dùng jlogger, Dagster dùng hệ log riêng — không l�
 
 - `dagster_runs.{success,failed}`: đếm `RUN_SUCCESS` vs `RUN_FAILURE`/`STEP_FAILURE`/`DagsterLaunchFailedError` trong log 60 phút
 - `db.news_1h`, `db.candles_10m`, `db.trades_per_min_approx` (sum `trade_count` / 10), `db.newest_candle_age_min`
-- `binance.*`: counters consumer (`received/invalid/published/failures/reconnects`) + `events_lost = received - published - invalid - failures` (phải = 0)
+- `kafka.lag_total` (consumer lag group pathway-ohlcv-1m — metric số 1), `kafka.produce_per_sec` (delta log-end giữa 2 lần đo, null ở lần đầu), `kafka.log_end_total`
+- `binance.*`: counters consumer (`received/invalid/published/failures/reconnects`, `last/max_flush_latency_s`) + `events_lost = received - published - invalid - failures` (phải = 0)
 - `trades_per_min` là xấp xỉ (không phải đếm Kafka offsets) — đủ để thấy trend, không dùng tính tiền
 
 ## HEALTH (khỏe hay không)
@@ -38,6 +39,7 @@ Quy ước: services dùng jlogger, Dagster dùng hệ log riêng — không l�
 | `news_1h` | < 1 (`ALERT_MIN_NEWS_1H`) | RSS/schedule `news_job` ở Automation tab |
 | `failed_runs` | > 0 (`ALERT_MAX_FAILED_RUNS`) | Runs tab + daemon logs |
 | `events_lost` | > 0 (`ALERT_MAX_EVENTS_LOST`) | consumer làm mất event — check bug code path |
+| `lag_total` | > 5000 (`ALERT_MAX_CONSUMER_LAG`) | engine theo không kịp producer — check pathway CPU/log, cân nhắc tăng partition |
 | `db unreachable` | — | `crypto-postgres` sống không |
 
 Chạy định kỳ bằng Task Scheduler/cron gọi `alert.py` (exit code) — chưa cần server riêng.

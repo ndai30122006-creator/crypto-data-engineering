@@ -48,6 +48,56 @@ def binance_consumer() -> dict:
     return data
 
 
+def kafka_group(group: str = "pathway-ohlcv-1m") -> dict:
+    """Lag + log-end offsets của consumer group (lag = khoảng cách producer-consumer)."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["docker", "exec", "crypto-kafka",
+             "/opt/kafka/bin/kafka-consumer-groups.sh",
+             "--bootstrap-server", "localhost:9092",
+             "--describe", "--group", group],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"error": f"docker exec lỗi: {exc}"}
+    if proc.returncode != 0:
+        return {"error": "describe group thất bại (group chưa tồn tại?)"}
+    lag_total, end_total = 0, 0
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        # Dòng dữ liệu: GROUP TOPIC PARTITION CURRENT-OFFSET LOG-END-OFFSET LAG ...
+        if len(parts) >= 6 and parts[0] == group and parts[3].lstrip("-").isdigit():
+            try:
+                end_total += int(parts[4])
+                lag_total += int(parts[5])
+            except ValueError:
+                continue
+    return {"group": group, "lag_total": lag_total, "log_end_total": end_total}
+
+
+def kafka_rate(end_total: int) -> float | None:
+    """Produce rate (msg/s) = delta log-end / delta thời gian giữa 2 lần đo."""
+    import tempfile
+    from pathlib import Path
+
+    state_file = Path(tempfile.gettempdir()) / "crypto_kafka_rate.json"
+    now = datetime.datetime.now(datetime.UTC).timestamp()
+    prev = None
+    try:
+        prev = json.loads(state_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        prev = None
+    try:
+        state_file.write_text(json.dumps({"end": end_total, "ts": now}), encoding="utf-8")
+    except OSError:
+        pass
+    if not prev or now - prev.get("ts", now) < 1:
+        return None  # lần đo đầu hoặc quá nhanh: chưa có rate
+    return round((end_total - prev.get("end", end_total)) / (now - prev["ts"]), 1)
+
+
 def dagster_runs(since: str = "60m") -> dict:
     """Đếm kết quả runs từ log daemon+code (RUN_SUCCESS vs FAILURE/ERROR)."""
     logs = _docker_logs("crypto-dagster-daemon", since)
@@ -108,10 +158,14 @@ def db_stats() -> dict:
 
 def collect(minutes: int = DEFAULT_MINUTES) -> dict:
     """Gom hết metrics. Key thiếu/infra chết → error thay vì crash."""
+    group = kafka_group()
+    rate = kafka_rate(group["log_end_total"]) if "log_end_total" in group else None
+    group["produce_per_sec"] = rate
     return {
         "at": datetime.datetime.now(datetime.UTC).isoformat(),
         "window_minutes": minutes,
         "dagster_runs": dagster_runs(f"{minutes}m"),
+        "kafka": group,
         "binance": binance_consumer(),
         "db": db_stats(),
     }

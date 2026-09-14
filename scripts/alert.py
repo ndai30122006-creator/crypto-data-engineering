@@ -5,6 +5,8 @@ Ngưỡng qua env (default cho local):
   ALERT_MIN_CANDLES_10M=20     — dưới 20 nến/10 phút (5 symbols × 10)
   ALERT_MIN_NEWS_1H=1          — 1 giờ không có tin mới (RSS/schedule kẹt)
   ALERT_MAX_FAILED_RUNS=0      — bất kỳ run Dagster nào fail
+  ALERT_MAX_EVENTS_LOST=0      — consumer làm mất event trong code path
+  ALERT_MAX_CONSUMER_LAG=5000  — Kafka consumer lag quá cao
 Exit: 0 xanh hết, 1 có đỏ. Mỗi ALERT ghi rõ metric + ngưỡng + hành động.
 """
 import os
@@ -23,7 +25,14 @@ CHECKS = [
      "run Dagster fail — xem Runs tab + daemon logs"),
     ("events_lost", "ALERT_MAX_EVENTS_LOST", 0, "gt",
      "consumer làm mất event (received != published+invalid+failures) — check bug code path"),
+    ("lag_total", "ALERT_MAX_CONSUMER_LAG", 5000, "gt",
+     "consumer lag cao (engine theo không kịp producer) — check pathway CPU/log"),
 ]
+
+
+# Metric thuộc section nào: section lỗi (error) thì evaluate bỏ qua rule
+# (tránh alert giả trên cụm mới dựng; liveness đã có healthcheck lo).
+_SECTION_OF = {"events_lost": "binance", "lag_total": "kafka"}
 
 
 def _value(metrics: dict, key: str):
@@ -31,6 +40,8 @@ def _value(metrics: dict, key: str):
         return metrics.get("dagster_runs", {}).get("failed")
     if key == "events_lost":
         return metrics.get("binance", {}).get("events_lost")
+    if key == "lag_total":
+        return metrics.get("kafka", {}).get("lag_total")
     return metrics.get("db", {}).get(key)
 
 
@@ -42,10 +53,10 @@ def evaluate(metrics: dict, env: dict | None = None) -> list[str]:
     if isinstance(db, dict) and "error" in db:
         return [f"ALERT db unreachable: {db['error']} — check postgres container"]
     for key, env_name, default, op, action in CHECKS:
-        # Consumer chưa dump file (mới start) → bỏ qua rule này,
-        # liveness đã có healthcheck heartbeat lo.
-        if key == "events_lost":
-            section = metrics.get("binance")
+        # Section lỗi (infra mới/thiếu metrics) → bỏ qua rule, tránh alert giả.
+        section_name = _SECTION_OF.get(key)
+        if section_name:
+            section = metrics.get(section_name)
             if not isinstance(section, dict) or "error" in section:
                 continue
         threshold = float(env.get(env_name, default))
