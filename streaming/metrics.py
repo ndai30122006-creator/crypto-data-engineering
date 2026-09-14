@@ -17,6 +17,7 @@ _last_event: dict = {}
 _last_ohlcv: dict[str, dict] = {}
 _last_latency_s = 0.0
 _max_latency_s = 0.0
+_db: dict = {}
 
 
 def reset() -> None:
@@ -29,7 +30,14 @@ def reset() -> None:
     _last_ohlcv.clear()
     _last_latency_s = 0.0
     _max_latency_s = 0.0
+    _db.clear()
     _started_at = time.time()
+
+
+def note_db(stats: dict) -> None:
+    """Gộp counters sink Postgres (upsert rows/failures/latency) vào snapshot."""
+    _db.clear()
+    _db.update(stats)
 
 
 def note_event(symbol: str, ts_ms: int) -> None:
@@ -62,6 +70,7 @@ def snapshot() -> dict:
         "max_processing_latency_s": _max_latency_s,
         "last_event": dict(_last_event),
         "last_ohlcv": {s: dict(v) for s, v in _last_ohlcv.items()},
+        "db": dict(_db),
         "uptime_seconds": round(time.time() - _started_at, 1),
     }
 

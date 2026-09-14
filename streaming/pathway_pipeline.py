@@ -19,7 +19,13 @@ import pathway as pw
 
 from ingestion.jlog import get_logger
 from streaming import metrics as engine_metrics
-from streaming.postgres_sink import UPSERT_1M, ensure_tables, to_row
+from streaming.postgres_sink import (
+    ensure_tables,
+    upsert_candles,
+)
+from streaming.postgres_sink import (
+    snapshot_metrics as sink_metrics,
+)
 from streaming.windows import WINDOW_SECONDS
 
 log = get_logger("pathway-pipeline")
@@ -98,12 +104,12 @@ def make_sink():
             "trade_count": int(row["trade_count"]),
             "price_change_1m": None,
         }
-        with conn, conn.cursor() as cur:
-            cur.execute(UPSERT_1M, to_row(candle))
+        upsert_candles(conn, [candle])
         written["n"] += 1
         stats = engine_metrics.note_candle(
             candle["symbol"], candle["window_start"], candle["close"]
         )
+        engine_metrics.note_db(sink_metrics())
         if written["n"] == 1 or written["n"] % 50 == 0:
             engine_metrics.dump(os.getenv("METRICS_FILE", "/tmp/pathway-metrics.json"))
             log.info(

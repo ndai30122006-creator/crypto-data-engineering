@@ -143,6 +143,7 @@ def db_stats() -> dict:
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)[:120]}
     try:
+        query_started = datetime.datetime.now(datetime.UTC).timestamp()
         with conn, conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM crypto_news_local;")
             news_total = cur.fetchone()[0]
@@ -158,6 +159,9 @@ def db_stats() -> dict:
             candles_10m, trades_10m = cur.fetchone()
             cur.execute("SELECT max(window_start) FROM market_1m;")
             newest = cur.fetchone()[0]
+        query_latency = round(
+            datetime.datetime.now(datetime.UTC).timestamp() - query_started, 3
+        )
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)[:120]}
     finally:
@@ -172,7 +176,9 @@ def db_stats() -> dict:
         "candles_10m": candles_10m,
         "trades_10m_approx": int(trades_10m or 0),
         "trades_per_min_approx": round(float(trades_10m or 0) / 10, 1),
+        "newest_candle_at": newest.isoformat() if newest else None,
         "newest_candle_age_min": round(age_min, 1) if age_min is not None else None,
+        "query_latency_s": query_latency,
     }
 
 

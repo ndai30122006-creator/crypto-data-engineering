@@ -6,6 +6,7 @@ Chạy offline trong <1s thay vì dựng Postgres + gọi API thật.
 from datetime import UTC
 from unittest.mock import MagicMock, patch
 
+import pytest
 from dagster import build_op_context
 
 from dagster_project.assets.market_assets import (
@@ -99,6 +100,37 @@ def test_insert_news_sql_uses_env_table():
         assert "crypto_news_local" in statements  # bảng theo env
         assert "CREATE TABLE IF NOT EXISTS" in statements  # ensure_tables
         assert "ON CONFLICT (url) DO NOTHING" in statements  # upsert
+
+
+def test_insert_counters_and_failure():
+    """Counters success/rows/latency + failure đếm khi execute lỗi."""
+    from dagster_project.resources.postgres import reset_metrics, snapshot_metrics
+
+    reset_metrics()
+    pg = PostgresResource(conn_str="dummy", env="local")
+    with patch(
+        "dagster_project.resources.postgres.psycopg2.connect"
+    ) as mock_connect:
+        mock_cur = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.rowcount = 1
+        mock_connect.return_value = mock_conn
+
+        assert pg.insert_news([SAMPLE_ARTICLE]) == 1
+        snap = snapshot_metrics()
+        assert snap["insert_success_total"] == 1
+        assert snap["rows_inserted_total"] == 1
+        assert snap["last_query_latency_s"] >= 0.0
+
+        mock_cur.execute.side_effect = RuntimeError("db down")
+        with pytest.raises(RuntimeError):
+            pg.insert_news([SAMPLE_ARTICLE])
+        snap = snapshot_metrics()
+        assert snap["insert_failure_total"] == 1
+        assert snap["insert_success_total"] == 1  # không tăng khi lỗi
+    reset_metrics()
 
 
 def test_loaded_news_with_mock():

@@ -1,9 +1,26 @@
 """Sink Postgres cho market_1m: ensure schema + upsert idempotent.
 
 Upsert theo PK (symbol, window_start): replay Kafka / restart engine
-ghi đè cùng giá trị thay vì crash trùng key (at-least-once an toàn).
+đều idempotent. Counters module cho metrics (thấy ở engine dump).
 """
+import time
 from datetime import UTC, datetime
+
+_counters = {
+    "sink_upserted_total": 0,
+    "sink_failures_total": 0,
+    "last_sink_latency_s": 0.0,
+    "max_sink_latency_s": 0.0,
+}
+
+
+def snapshot_metrics() -> dict:
+    return dict(_counters)
+
+
+def reset_metrics() -> None:
+    for key in _counters:
+        _counters[key] = 0.0 if key.endswith("_s") else 0
 
 DDL_MARKET_1M = """
 CREATE TABLE IF NOT EXISTS market_1m (
@@ -50,10 +67,19 @@ def to_row(candle: dict) -> tuple:
 
 
 def upsert_candles(conn, candles: list[dict]) -> int:
-    """Upsert nhiều nến, trả về số dòng đã viết."""
+    """Upsert nhiều nến, trả về số dòng đã viết. Lỗi → đếm failures + raise."""
     if not candles:
         return 0
-    with conn, conn.cursor() as cur:
-        for candle in candles:
-            cur.execute(UPSERT_1M, to_row(candle))
+    started = time.time()
+    try:
+        with conn, conn.cursor() as cur:
+            for candle in candles:
+                cur.execute(UPSERT_1M, to_row(candle))
+    except Exception:
+        _counters["sink_failures_total"] += 1
+        raise
+    latency = time.time() - started
+    _counters["sink_upserted_total"] += len(candles)
+    _counters["last_sink_latency_s"] = round(latency, 3)
+    _counters["max_sink_latency_s"] = round(max(_counters["max_sink_latency_s"], latency), 3)
     return len(candles)

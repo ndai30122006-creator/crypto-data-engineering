@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from streaming import metrics as engine_metrics
 from streaming.postgres_sink import ensure_tables, to_row, upsert_candles
 from streaming.windows import WINDOW_SECONDS, aggregate, bucket_start
@@ -50,6 +52,38 @@ def test_upsert_candles_sql():
     sql = cur.execute.call_args[0][0]
     assert "ON CONFLICT (symbol, window_start) DO UPDATE" in sql
     assert upsert_candles(conn, []) == 0
+
+
+def test_upsert_counters_and_failure():
+    from streaming.postgres_sink import reset_metrics, snapshot_metrics
+
+    reset_metrics()
+    conn, cur = MagicMock(), MagicMock()
+    conn.__enter__.return_value = conn
+    conn.cursor.return_value.__enter__.return_value = cur
+    upsert_candles(conn, [
+        {"symbol": "B", "window_start": 1, "open": 1.0, "high": 1.0, "low": 1.0,
+         "close": 1.0, "volume": 1.0, "trade_count": 1, "price_change_1m": None}
+    ])
+    snap = snapshot_metrics()
+    assert snap["sink_upserted_total"] == 1
+    assert snap["last_sink_latency_s"] >= 0.0
+    cur.execute.side_effect = RuntimeError("db down")
+    with pytest.raises(RuntimeError):
+        upsert_candles(conn, [
+            {"symbol": "B", "window_start": 1, "open": 1.0, "high": 1.0, "low": 1.0,
+             "close": 1.0, "volume": 1.0, "trade_count": 1, "price_change_1m": None}
+        ])
+    assert snapshot_metrics()["sink_failures_total"] == 1
+    reset_metrics()
+
+
+def test_engine_note_db_merges_sink_stats():
+    engine_metrics.reset()
+    engine_metrics.note_db({"sink_upserted_total": 7, "sink_failures_total": 0})
+    assert engine_metrics.snapshot()["db"] == {"sink_upserted_total": 7,
+                                               "sink_failures_total": 0}
+    engine_metrics.reset()
 
 
 def test_ensure_tables_runs_ddl():

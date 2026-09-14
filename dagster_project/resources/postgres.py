@@ -1,10 +1,29 @@
 """Postgres resource: mở connection + các thao tác INSERT gom 1 chỗ."""
+import time
 from contextlib import contextmanager
 from datetime import datetime
 
 import orjson
 import psycopg2
 from dagster import ConfigurableResource
+
+_counters = {
+    "insert_success_total": 0,  # số lần gọi insert_* thành công
+    "insert_failure_total": 0,  # số lần gọi insert_* lỗi (exception)
+    "rows_inserted_total": 0,  # tổng rows đã INSERT (news + snapshot)
+    "last_query_latency_s": 0.0,
+    "max_query_latency_s": 0.0,
+}
+
+
+def snapshot_metrics() -> dict:
+    """Counters hiện tại (live xem qua asset metadata từng materialize)."""
+    return dict(_counters)
+
+
+def reset_metrics() -> None:
+    for key in _counters:
+        _counters[key] = 0.0 if key.endswith("_s") else 0
 
 
 class PostgresResource(ConfigurableResource):
@@ -78,73 +97,91 @@ class PostgresResource(ConfigurableResource):
                     f"CREATE TABLE IF NOT EXISTS {self.table(base)} {ddl}"
                 )
 
+    @contextmanager
+    def _timed(self):
+        """Đo latency 1 lần insert + đếm success/failure (rows cộng ở caller)."""
+        started = time.time()
+        try:
+            yield
+        except Exception:
+            _counters["insert_failure_total"] += 1
+            raise
+        latency = time.time() - started
+        _counters["insert_success_total"] += 1
+        _counters["last_query_latency_s"] = round(latency, 3)
+        _counters["max_query_latency_s"] = round(
+            max(_counters["max_query_latency_s"], latency), 3
+        )
+
     def insert_news(self, articles: list[dict]) -> int:
         """INSERT tin, bỏ qua URL đã có. Trả về số dòng mới."""
         inserted = 0
-        with self._session() as cur:
+        with self._timed(), self._session() as cur:
             for article in articles:
-                cur.execute(
-                    f"""
-                    INSERT INTO {self.table("crypto_news")}
-                        (title, url, source, published_at,
-                         content, sentiment, symbols)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (url) DO NOTHING
-                    """,
-                    (
-                        article["title"],
-                        article["url"],
-                        article["source"],
-                        article["published_at"],
-                        article["content"],
-                        article["sentiment"],
-                        article["symbols"],
-                    ),
-                )
-                inserted += cur.rowcount
+                    cur.execute(
+                        f"""
+                        INSERT INTO {self.table("crypto_news")}
+                            (title, url, source, published_at,
+                             content, sentiment, symbols)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (url) DO NOTHING
+                        """,
+                        (
+                            article["title"],
+                            article["url"],
+                            article["source"],
+                            article["published_at"],
+                            article["content"],
+                            article["sentiment"],
+                            article["symbols"],
+                        ),
+                    )
+                    inserted += cur.rowcount
+        _counters["rows_inserted_total"] += inserted
         return inserted
 
     def insert_snapshot(self, collected_at: datetime, coins: list[dict]) -> int:
         """INSERT 1 batch snapshot cùng mốc giờ. Trả về số dòng mới."""
         inserted = 0
-        with self._session() as cur:
+        with self._timed(), self._session() as cur:
             for coin in coins:
-                cur.execute(
-                    f"""
-                    INSERT INTO {self.table("crypto_market_snapshot")}
-                        (collected_at, symbol, name, price, market_cap,
-                         circulating_supply, volume_24h, price_change_24h)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (collected_at, symbol) DO NOTHING
-                    """,
-                    (
-                        collected_at,
-                        coin["symbol"],
-                        coin["name"],
-                        coin["price"],
-                        coin["market_cap"],
-                        coin["circulating_supply"],
-                        coin["volume_24h"],
-                        coin["price_change_24h"],
-                    ),
-                )
-                inserted += cur.rowcount
+                    cur.execute(
+                        f"""
+                        INSERT INTO {self.table("crypto_market_snapshot")}
+                            (collected_at, symbol, name, price, market_cap,
+                             circulating_supply, volume_24h, price_change_24h)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (collected_at, symbol) DO NOTHING
+                        """,
+                        (
+                            collected_at,
+                            coin["symbol"],
+                            coin["name"],
+                            coin["price"],
+                            coin["market_cap"],
+                            coin["circulating_supply"],
+                            coin["volume_24h"],
+                            coin["price_change_24h"],
+                        ),
+                    )
+                    inserted += cur.rowcount
+        _counters["rows_inserted_total"] += inserted
         return inserted
 
     def insert_errors(self, errors: list[dict]) -> None:
         """Ghi bad records, không bao giờ drop lặng lẽ."""
         if not errors:
             return
-        with self._session() as cur:
+        with self._timed(), self._session() as cur:
             for err in errors:
-                payload = err["payload"]
-                if not isinstance(payload, str):
-                    payload = orjson.dumps(payload, default=str).decode("utf-8")
-                cur.execute(
-                    f"""
-                    INSERT INTO {self.table("data_quality_errors")}
-                        (pipeline, payload, error)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (err["pipeline"], payload, err["error"]),
-                )
+                    payload = err["payload"]
+                    if not isinstance(payload, str):
+                        payload = orjson.dumps(payload, default=str).decode("utf-8")
+                    cur.execute(
+                        f"""
+                        INSERT INTO {self.table("data_quality_errors")}
+                            (pipeline, payload, error)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (err["pipeline"], payload, err["error"]),
+                    )

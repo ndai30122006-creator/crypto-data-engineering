@@ -20,8 +20,9 @@ Quy ước: services dùng jlogger, Dagster dùng hệ log riêng — không l�
 - `dagster_runs.{success,failed}`: đếm `RUN_SUCCESS` vs `RUN_FAILURE`/`STEP_FAILURE`/`DagsterLaunchFailedError` trong log 60 phút
 - `db.news_1h`, `db.candles_10m`, `db.trades_per_min_approx` (sum `trade_count` / 10), `db.newest_candle_age_min`
 - `kafka.lag_total` (consumer lag group pathway-ohlcv-1m — metric số 1), `kafka.produce_per_sec` (delta log-end giữa 2 lần đo, null ở lần đầu), `kafka.log_end_total`
-- `pathway.*`: `events_processed_total`, `windows_created_total`, `last/max_processing_latency_s`, `last_event`, `last_ohlcv` theo symbol (vd last candle BTC + latency)
+- `pathway.*`: `events_processed_total`, `windows_created_total`, `last/max_processing_latency_s`, `last_event`, `last_ohlcv` theo symbol (vd last candle BTC + latency), `db` (sink upsert rows/failures/latency)
 - `binance.*`: counters consumer (`received/invalid/published/failures/reconnects`, `last/max_flush_latency_s`) + `events_lost = received - published - invalid - failures` (phải = 0)
+- DB client (Dagster resource): `insert_success/failure_total`, `rows_inserted_total`, `last/max_query_latency_s` — xem qua asset metadata từng materialize; monitoring script tự đo `query_latency_s` khi quét DB
 - `trades_per_min` là xấp xỉ (không phải đếm Kafka offsets) — đủ để thấy trend, không dùng tính tiền
 
 ## HEALTH (khỏe hay không)
