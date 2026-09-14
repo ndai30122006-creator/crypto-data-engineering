@@ -15,11 +15,11 @@ Tổng hợp từ `plan/` (01–06 + README), cập nhật theo code thực tế
 | 6 | Resource practice (theo blog Dagster Resources) | ✅ P1–P4 DONE, P5 check tay trên UI | §6 |
 
 Hạ tầng hiện tại (đã vượt plan gốc):
-
 - `uv` thay `pip`: `pyproject.toml` + `uv.lock` + `.python-version` (3.12). Chạy local: `uv sync; uv run pytest tests/ -q`.
 - Deploy tách 4 services: `postgres` + `dagster-code` (gRPC 4000) + `dagster-webserver` + `dagster-daemon`. `workspace.yaml` load qua `grpc_server dagster-code:4000`.
 - Logger: asset dùng `context.log` + `add_output_metadata`; resource dùng `get_dagster_logger()`. Chỉ dùng `@asset`, `@op` chỉ cần biết.
-- Healthcheck cả 4 services trong `docker-compose.yml` (`pg_isready`, socket 4000, `/server_info`, `dagster instance info`).
+- Healthcheck cả 6 services trong `docker-compose.yml` (postgres, code, webserver, daemon, kafka, consumer heartbeat).
+- Data quality: `quality/checks.py` pure (freshness/dup/null/row-count/schema/metrics) + 6 `@asset_check` đăng ký trong `defs`, test `tests/test_quality.py`.
 
 Nguyên tắc phân biệt tool:
 

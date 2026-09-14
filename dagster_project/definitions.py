@@ -16,6 +16,14 @@ from dagster_project.assets.news_assets import (
     loaded_news,
     raw_news,
 )
+from dagster_project.quality.asset_checks import (
+    market_count_and_schema,
+    market_metrics,
+    news_count_and_schema,
+    news_freshness,
+    news_no_duplicates,
+    news_no_nulls,
+)
 from dagster_project.resources import (
     CoinGeckoResource,
     PostgresResource,
@@ -52,6 +60,14 @@ defs = Definitions(
         loaded_snapshot,
     ],
     schedules=[news_schedule, market_schedule],
+    asset_checks=[
+        news_freshness,
+        news_no_duplicates,
+        news_no_nulls,
+        news_count_and_schema,
+        market_count_and_schema,
+        market_metrics,
+    ],
     resources={
         "postgres": PostgresResource(
             conn_str=EnvVar("DATABASE_URL"),
