@@ -76,30 +76,31 @@ def _cleanup() -> None:
         conn.close()
 
 
+def _publish_all(producer) -> None:
+    for _, price, offset_s in FAKE_TRADES:
+        event = {
+            "symbol": SYMBOL,
+            "price": price,
+            "quantity": 1.0,
+            "timestamp": T0 + offset_s * 1000,
+        }
+        producer.send(TOPIC, key=SYMBOL, value=event).get(timeout=15)
+    producer.flush()
+
+
 @needs_stack
 def test_streaming_e2e_fake_to_postgres():
     """Publish 6 fake trades → đợi engine ghi nến → ASSERT OHLCV."""
     from kafka import KafkaProducer
 
     _cleanup()
+    producer = KafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        key_serializer=lambda k: k.encode(),
+        value_serializer=lambda v: orjson.dumps(v),
+    )
     try:
-        producer = KafkaProducer(
-            bootstrap_servers=KAFKA_BOOTSTRAP,
-            key_serializer=lambda k: k.encode(),
-            value_serializer=lambda v: orjson.dumps(v),
-        )
-        try:
-            for _, price, offset_s in FAKE_TRADES:
-                event = {
-                    "symbol": SYMBOL,
-                    "price": price,
-                    "quantity": 1.0,
-                    "timestamp": T0 + offset_s * 1000,
-                }
-                producer.send(TOPIC, key=SYMBOL, value=event).get(timeout=15)
-            producer.flush()
-        finally:
-            producer.close()
+        _publish_all(producer)
 
         row = None
         # Chờ engine xử lý có timeout 60s — không treo vô hạn nếu pipeline kẹt.
@@ -136,5 +137,26 @@ def test_streaming_e2e_fake_to_postgres():
         # giữ OHLC đúng, chỉ count/volume phình.
         assert (o, h, low, c) == (100.0, 105.0, 98.0, 103.0)
         assert vol >= 6.0 and cnt >= len(FAKE_TRADES)
+
+        # Step 1.5 — Idempotency: publish lại y hệt 6 events, nến không đổi.
+        baseline = (sym, w_start, o, h, low, c)
+        _publish_all(producer)
+        time.sleep(15)  # cho engine xử lý lại hết batch trùng
+        conn = _pg()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT symbol, window_start, open, high, low, close "
+                    "FROM market_1m WHERE symbol = %s;",
+                    (SYMBOL,),
+                )
+                row2 = cur.fetchone()
+        finally:
+            conn.close()
+        assert row2 is not None
+        again = (row2[0], row2[1],
+                 float(row2[2]), float(row2[3]), float(row2[4]), float(row2[5]))
+        assert again == baseline, f"idempotency vỡ: {baseline} != {again}"
     finally:
+        producer.close()
         _cleanup()
