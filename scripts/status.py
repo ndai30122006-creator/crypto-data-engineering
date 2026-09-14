@@ -6,6 +6,7 @@ Chỉ dùng stdlib + psycopg2 + docker CLI (không thêm tech).
 """
 import datetime
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -49,7 +50,8 @@ def check_containers() -> None:
                 "crypto-binance-consumer", "crypto-pathway"]
     for name in expected:
         status = running.get(name, "missing")
-        if "healthy" in status or (name == "crypto-binance-consumer" and status.startswith("Up")):
+        # "(unhealthy)" cũng startswith "Up" nên phải loại trước.
+        if "healthy" in status or (status.startswith("Up") and "unhealthy" not in status):
             report(f"container {name}", OK, status)
         else:
             report(f"container {name}", FAIL, status)
@@ -78,9 +80,10 @@ def check_db() -> None:
     except ImportError:
         report("postgres", WARN, "thiếu psycopg2, bỏ qua check DB")
         return
+    # Secret qua env, default local chỉ để chạy nhanh trên máy dev.
+    url = os.getenv("DATABASE_URL", "postgresql://admin:secret@localhost:5432/crypto_db")
     try:
-        conn = psycopg2.connect("postgresql://admin:secret@localhost:5432/crypto_db",
-                                connect_timeout=5)
+        conn = psycopg2.connect(url, connect_timeout=5)
     except Exception as exc:  # noqa: BLE001 - báo lỗi kết nối gọn
         report("postgres", FAIL, str(exc)[:120])
         return

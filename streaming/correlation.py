@@ -7,6 +7,9 @@ from datetime import UTC, datetime
 
 
 def _as_utc(value) -> datetime | None:
+    # Mirror của quality/checks._as_utc (mở rộng thêm int/str cho nến).
+    # Giữ duplicate có chủ ý: streaming image không chứa dagster_project,
+    # tách shared package cho 12 dòng là quá đà.
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=UTC)
     if isinstance(value, (int, float)):

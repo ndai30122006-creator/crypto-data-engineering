@@ -19,6 +19,8 @@ class CheckResult:
 
 
 def _as_utc(dt: datetime) -> datetime:
+    # Bản datetime-only; streaming/correlation._as_utc là mirror mở rộng
+    # (int/str) — giữ duplicate vì 2 image không share package.
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 

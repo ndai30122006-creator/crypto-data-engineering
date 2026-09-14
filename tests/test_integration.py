@@ -12,6 +12,11 @@ import orjson
 import pytest
 
 RUN = os.getenv("INTEGRATION") == "1"
+# Override khi infra không ở localhost: TEST_KAFKA_BOOTSTRAP / TEST_DATABASE_URL.
+KAFKA_BOOTSTRAP = os.getenv("TEST_KAFKA_BOOTSTRAP", "localhost:29092")
+DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL", "postgresql://admin:secret@localhost:5432/crypto_db"
+)
 
 
 def _tcp_ok(host: str, port: int, timeout: float = 3.0) -> bool:
@@ -22,11 +27,23 @@ def _tcp_ok(host: str, port: int, timeout: float = 3.0) -> bool:
         return False
 
 
+def _kafka_hostport() -> tuple[str, int]:
+    host, _, port = KAFKA_BOOTSTRAP.partition(":")
+    return host or "localhost", int(port or 29092)
+
+
+def _pg_hostport() -> tuple[str, int]:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(DATABASE_URL)
+    return parts.hostname or "localhost", parts.port or 5432
+
+
 needs_kafka = pytest.mark.skipif(
-    not (RUN and _tcp_ok("localhost", 29092)), reason="cần INTEGRATION=1 + Kafka local"
+    not (RUN and _tcp_ok(*_kafka_hostport())), reason="cần INTEGRATION=1 + Kafka local"
 )
 needs_pg = pytest.mark.skipif(
-    not (RUN and _tcp_ok("localhost", 5432)), reason="cần INTEGRATION=1 + Postgres local"
+    not (RUN and _tcp_ok(*_pg_hostport())), reason="cần INTEGRATION=1 + Postgres local"
 )
 
 
@@ -38,7 +55,7 @@ def test_kafka_produce_consume_roundtrip():
     topic = "test.ingestion.roundtrip"
     event = {"symbol": "TEST", "price": 1.5, "quantity": 2.0, "timestamp": 1}
     producer = KafkaProducer(
-        bootstrap_servers="localhost:29092",
+        bootstrap_servers=KAFKA_BOOTSTRAP,
         key_serializer=lambda k: k.encode(),
         value_serializer=lambda v: orjson.dumps(v),
     )
@@ -50,7 +67,7 @@ def test_kafka_produce_consume_roundtrip():
 
     consumer = KafkaConsumer(
         topic,
-        bootstrap_servers="localhost:29092",
+        bootstrap_servers=KAFKA_BOOTSTRAP,
         auto_offset_reset="earliest",
         consumer_timeout_ms=15000,
         value_deserializer=lambda b: orjson.loads(b),
@@ -94,7 +111,7 @@ def test_consumer_pipeline_to_real_kafka():
     from kafka import KafkaProducer
 
     real = KafkaProducer(
-        bootstrap_servers="localhost:29092",
+        bootstrap_servers=KAFKA_BOOTSTRAP,
         value_serializer=lambda v: orjson.dumps(v),
     )
     try:
@@ -104,7 +121,7 @@ def test_consumer_pipeline_to_real_kafka():
         real.close()
     consumer = KafkaConsumer(
         topic,
-        bootstrap_servers="localhost:29092",
+        bootstrap_servers=KAFKA_BOOTSTRAP,
         auto_offset_reset="earliest",
         consumer_timeout_ms=15000,
         value_deserializer=lambda b: orjson.loads(b),
@@ -124,7 +141,7 @@ def test_postgres_news_roundtrip():
     from dagster_project.resources.postgres import PostgresResource
 
     pg = PostgresResource(
-        conn_str="postgresql://admin:secret@localhost:5432/crypto_db", env="test"
+        conn_str=DATABASE_URL, env="test"
     )
     article = {
         "title": "ITEST",
@@ -136,7 +153,7 @@ def test_postgres_news_roundtrip():
         "symbols": ["BTC"],
     }
     assert pg.insert_news([article]) >= 0
-    conn = psycopg2.connect("postgresql://admin:secret@localhost:5432/crypto_db")
+    conn = psycopg2.connect(DATABASE_URL)
     try:
         with conn, conn.cursor() as cur:
             cur.execute(

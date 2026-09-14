@@ -29,11 +29,12 @@ def pending(conn, directory: Path) -> list[Path]:
         )
         cur.execute("SELECT version FROM schema_migrations;")
         applied = {row[0] for row in cur.fetchall()}
-    files = sorted(
-        (p for p in directory.glob("*.sql") if FILENAME_RE.match(p.name)),
-        key=lambda p: p.name,
-    )
-    return [p for p in files if FILENAME_RE.match(p.name).group(1) not in applied]
+    versioned: list[tuple[str, Path]] = []
+    for p in directory.glob("*.sql"):
+        m = FILENAME_RE.match(p.name)
+        if m and m.group(1) not in applied:
+            versioned.append((m.group(1), p))
+    return [p for _, p in sorted(versioned)]
 
 
 def apply(conn, files: list[Path]) -> list[str]:
