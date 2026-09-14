@@ -6,8 +6,9 @@ Env: KAFKA_BOOTSTRAP_SERVERS (default kafka:9092), KAFKA_TOPIC,
      KAFKA_GROUP_ID, PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD.
 
 Ghi qua subscribe callback + upsert (symbol, window_start): replay Kafka
-hay restart engine đều idempotent. open/close = giá trade sớm/muộn nhất
-(trades cùng symbol đi 1 partition nên giữ thứ tự).
+hay restart engine đều idempotent. open/close tính định đoạt bằng
+min/max composite key "ts|price" (đúng data-time; earliest/latest của
+engine theo processing-time nên sai khi burst) — xem _oc_key.
 price_change_1m để NULL ở sink — query correlation tự tính bằng LAG()
 trên close (stateless, đúng cả khi replay).
 """
@@ -30,29 +31,42 @@ class TradeSchema(pw.Schema):
     timestamp: int  # ms, event time từ Binance
 
 
+def _oc_key(ts_ms: int, price: float) -> str:
+    """Composite key sortable: ts cố định 13 chữ số + giá cố định 8 thập phân.
+
+    min(key) = giá ở trade sớm nhất (open), max(key) = giá trade muộn nhất
+    (close) — đúng theo data-time bất kể thứ tự arrival (earliest/latest
+    của engine theo processing-time nên sai khi burst/out-of-order).
+    """
+    return f"{int(ts_ms):013d}|{price:.8f}"
+
+
 def build_candles(trades: pw.Table) -> pw.Table:
     """Trades → nến 1m. Tách hàm để test static trong container."""
     timed = trades.with_columns(
         t=trades.timestamp.dt.utc_from_timestamp("ms"),
         # Bucket epoch-seconds: cùng window → cùng giá trị, lấy min() là xong.
         wb=(trades.timestamp // 1000 // WINDOW_SECONDS) * WINDOW_SECONDS,
+        oc=pw.apply(_oc_key, trades.timestamp, trades.price),
     )
     return timed.windowby(
         timed.t,
         window=pw.temporal.tumbling(duration=timedelta(seconds=WINDOW_SECONDS)),
         instance=timed.symbol,
     ).reduce(
-        # earliest/latest theo processing-time (có warning của engine):
-        # OK vì trades cùng symbol đi 1 Kafka partition nên giữ thứ tự.
         symbol=pw.reducers.any(pw.this.symbol),
         window_start=pw.reducers.min(pw.this.wb),
-        open=pw.reducers.earliest(pw.this.price),
+        open_key=pw.reducers.min(pw.this.oc),
         high=pw.reducers.max(pw.this.price),
         low=pw.reducers.min(pw.this.price),
-        close=pw.reducers.latest(pw.this.price),
+        close_key=pw.reducers.max(pw.this.oc),
         volume=pw.reducers.sum(pw.this.quantity),
         trade_count=pw.reducers.count(pw.this.price),
     )
+
+
+def _price_of_key(key: str) -> float:
+    return float(key.split("|")[1])
 
 
 def make_sink():
@@ -75,10 +89,10 @@ def make_sink():
         candle = {
             "symbol": row["symbol"],
             "window_start": int(row["window_start"]),
-            "open": row["open"],
+            "open": _price_of_key(row["open_key"]),
             "high": row["high"],
             "low": row["low"],
-            "close": row["close"],
+            "close": _price_of_key(row["close_key"]),
             "volume": row["volume"],
             "trade_count": int(row["trade_count"]),
             "price_change_1m": None,

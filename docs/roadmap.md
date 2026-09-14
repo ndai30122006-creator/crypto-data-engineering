@@ -106,6 +106,10 @@ Kafka crypto.trades ──▶ Pathway ──▶ market_1m (OHLCV)
 - `streaming/pathway_pipeline.py` — engine Pathway 0.32.1 (API đã verify trong image: `pw.io.kafka.read` + `windowby(tumbling 60s)` + `reduce` + `subscribe`): `TradeSchema` parse JSON, bucket epoch-seconds, OHLCV theo symbol.
 - `streaming/postgres_sink.py` — upsert `(symbol, window_start)` idempotent (replay/restart an toàn). `price_change_1m` để NULL — query tự tính bằng `LAG()` (stateless).
 - Service `pathway` (`Dockerfile.pathway`, uv, healthcheck process qua `/proc`).
+- Bài học E2E test bắt được: `earliest/latest` của engine theo processing-time
+  nên sai open/close khi burst — chuyển sang min/max composite key `ts|price`
+  (đúng data-time mọi thứ tự arrival). Producer kafka-python không có
+  idempotence nên test assert OHLC chính xác + volume/count `>=`.
 - Verify live: 145 nến, đủ 5 symbols, OHLC hợp lệ (BTC 77522–77549).
 - Lưu ý: `earliest/latest` theo processing-time — đúng vì trades cùng symbol đi 1 partition nên giữ thứ tự; `pathway` marker Linux-only trong pyproject (không wheel Windows).
 
