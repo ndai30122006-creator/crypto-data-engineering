@@ -160,3 +160,56 @@ def test_streaming_e2e_fake_to_postgres():
     finally:
         producer.close()
         _cleanup()
+
+
+BAD_SYMBOL = "E2EINVALID"
+
+
+@needs_stack
+def test_streaming_e2e_invalid_events_ignored():
+    """Event rác (sai envelope/thiếu field) → engine bỏ qua, không có nến rác."""
+    from kafka import KafkaProducer
+
+    conn = _pg()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM market_1m WHERE symbol = %s;", (BAD_SYMBOL,))
+    finally:
+        conn.close()
+    try:
+        producer = KafkaProducer(
+            bootstrap_servers=KAFKA_BOOTSTRAP,
+            key_serializer=lambda k: k.encode(),
+            value_serializer=lambda v: orjson.dumps(v),
+        )
+        try:
+            # Envelope đúng JSON nhưng không phải trade, thiếu timestamp.
+            producer.send(
+                TOPIC, key=BAD_SYMBOL,
+                value={"stream": "x", "data": {"e": "aggTrade", "s": BAD_SYMBOL}},
+            ).get(timeout=15)
+            # Thiếu price → sai schema TradeSchema.
+            producer.send(
+                TOPIC, key=BAD_SYMBOL,
+                value={"symbol": BAD_SYMBOL, "quantity": 1.0, "timestamp": T0},
+            ).get(timeout=15)
+            producer.flush()
+        finally:
+            producer.close()
+        time.sleep(20)  # đủ cho engine nuốt + ghi nếu nó ghi bậy
+        conn = _pg()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT count(*) FROM market_1m WHERE symbol = %s;", (BAD_SYMBOL,)
+                )
+                assert cur.fetchone()[0] == 0, "engine ghi nến từ event rác"
+        finally:
+            conn.close()
+    finally:
+        conn = _pg()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM market_1m WHERE symbol = %s;", (BAD_SYMBOL,))
+        finally:
+            conn.close()
