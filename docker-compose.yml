@@ -136,7 +136,11 @@ services:
     volumes:
       - ./ingestion:/opt/consumer/ingestion
     depends_on:
-      kafka:
+  # Kafka single-broker + replication factor 1: CHỦ Ý cho local learning
+  # (nhẹ, đủ demo realtime). KHÔNG dựng 3 broker lúc này.
+  # Muốn prod-like: 3 broker KRaft + RF=3 (offsets/transactions/topics),
+  # min ISR=2, producer acks=all đã sẵn trong consumer.
+  kafka:
         condition: service_healthy
     healthcheck:
       # File nhịp tim do consumer touch mỗi khi publish (tối đa 10s/lần).

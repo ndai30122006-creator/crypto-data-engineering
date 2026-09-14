@@ -85,6 +85,7 @@ Binance WebSocket ──▶ binance-consumer ──▶ Kafka (topic crypto.trade
 ```
 
 - Services: `kafka` (apache/kafka 3.9, KRaft, healthcheck `kafka-topics.sh`), `binance-consumer` (image `Dockerfile.consumer`, uv, restart unless-stopped).
+- Kafka single-broker + RF=1 là chủ ý cho local (nhẹ); lên prod mới cần 3 broker + RF=3 (xem comment trong compose).
 - `ingestion/events.py` — pure logic (URL combined stream, `parse_trade` validate price/quantity > 0, serialize JSON). Test offline `tests/test_ingestion.py` (5 tests).
 - `ingestion/kafka_producer.py` — wrapper producer, **key = symbol** (cùng coin → cùng partition, giữ thứ tự).
 - `ingestion/binance_consumer.py` — service thường trực: `WebSocketApp` + reconnect backoff (1s → max 60s), log chuẩn. Config qua env `KAFKA_BOOTSTRAP_SERVERS` / `KAFKA_TOPIC` / `SYMBOLS`.
