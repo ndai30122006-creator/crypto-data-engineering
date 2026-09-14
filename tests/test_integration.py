@@ -4,40 +4,18 @@ Chạy khi stack Docker đang lên:
     $env:INTEGRATION = "1"; uv run pytest tests/test_integration.py -q
 Mặc định SKIP hết để `pytest tests/` offline vẫn xanh.
 Host tới infra qua: Kafka localhost:29092, Postgres localhost:5432.
+Helpers dùng chung ở integration/helpers.py (tránh duplicate).
 """
-import os
-import socket
-
 import orjson
 import pytest
-
-RUN = os.getenv("INTEGRATION") == "1"
-# Override khi infra không ở localhost: TEST_KAFKA_BOOTSTRAP / TEST_DATABASE_URL.
-KAFKA_BOOTSTRAP = os.getenv("TEST_KAFKA_BOOTSTRAP", "localhost:29092")
-DATABASE_URL = os.getenv(
-    "TEST_DATABASE_URL", "postgresql://admin:secret@localhost:5432/crypto_db"
+from integration.helpers import (
+    DATABASE_URL,
+    KAFKA_BOOTSTRAP,
+    RUN,
+    _kafka_hostport,
+    _pg_hostport,
+    _tcp_ok,
 )
-
-
-def _tcp_ok(host: str, port: int, timeout: float = 3.0) -> bool:
-    try:
-        socket.create_connection((host, port), timeout=timeout).close()
-        return True
-    except OSError:
-        return False
-
-
-def _kafka_hostport() -> tuple[str, int]:
-    host, _, port = KAFKA_BOOTSTRAP.partition(":")
-    return host or "localhost", int(port or 29092)
-
-
-def _pg_hostport() -> tuple[str, int]:
-    from urllib.parse import urlsplit
-
-    parts = urlsplit(DATABASE_URL)
-    return parts.hostname or "localhost", parts.port or 5432
-
 
 needs_kafka = pytest.mark.skipif(
     not (RUN and _tcp_ok(*_kafka_hostport())), reason="cần INTEGRATION=1 + Kafka local"
