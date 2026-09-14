@@ -28,7 +28,7 @@ Quy ước: services dùng jlogger, Dagster dùng hệ log riêng — không l�
 ## HEALTH (khỏe hay không)
 
 - Từng container: healthcheck trong compose (postgres `pg_isready`, code socket 4000, webserver `/server_info`, daemon process `/proc`, kafka `kafka-topics.sh`, consumer heartbeat file).
-- Tổng hợp cho người: `uv run python scripts/status.py` (11 checks, exit 0/1).
+- Tổng hợp cho người: `uv run python scripts/status.py` (dashboard HEALTH + FLOW + DATA, exit 0/1; `--json` ra metrics thô).
 
 ## ALERT (ngưỡng + hành động)
 

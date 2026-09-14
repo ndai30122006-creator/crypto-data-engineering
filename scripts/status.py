@@ -1,118 +1,132 @@
-"""Tổng hợp sức khỏe pipeline: containers, API, Kafka, DB, freshness.
+"""Crypto Data Platform Status: 1 lệnh thấy sức khỏe toàn hệ thống.
 
-Chạy: uv run python scripts/status.py
-Exit 0 khi mọi check critical xanh, 1 nếu có đỏ.
-Chỉ dùng stdlib + psycopg2 + docker CLI (không thêm tech).
+HEALTH (containers) + METRIC (collect) + FLOW (kafka) + DATA (db) + ALERT.
+Chạy: uv run python scripts/status.py [--json]
+Exit 0 xanh hết, 1 có đỏ (khớp alert.py).
 """
-import datetime
-import json
-import os
-import socket
 import subprocess
 import sys
-import urllib.request
 
-OK, WARN, FAIL = "OK", "WARN", "FAIL"
-results: list[tuple] = []
+try:
+    from metrics import collect
+except ImportError:  # chạy từ repo root: scripts/ không phải package
+    sys.path.insert(0, __import__("os").path.dirname(__file__))
+    from metrics import collect
 
-
-def _safe(text: str) -> str:
-    """Console Windows (cp1252) không in được dấu tiếng Việt → thay ?."""
-    enc = (sys.stdout.encoding or "utf-8").lower()
-    if "utf" in enc:
-        return text
-    return text.encode(enc, errors="replace").decode(enc)
-
-
-def report(name: str, status: str, detail: str = "") -> None:
-    results.append((name, status, detail))
-    print(_safe(f"[{status:4}] {name}" + (f" - {detail}" if detail else "")))
+CONTAINERS = [
+    ("PostgreSQL", "crypto-postgres"),
+    ("Kafka", "crypto-kafka"),
+    ("Dagster", "crypto-dagster-webserver"),
+    ("Dagster Daemon", "crypto-dagster-daemon"),
+    ("Binance Consumer", "crypto-binance-consumer"),
+    ("Pathway", "crypto-pathway"),
+]
 
 
-def sh(cmd: list[str], timeout: int = 15) -> str:
-    # check=False cố ý: nonzero → stdout rỗng → báo missing thay vì crash.
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False).stdout
-
-
-def check_containers() -> None:
+def container_health() -> dict[str, str]:
+    """Tên hiển thị → 'healthy'/'starting'/... (lỗi docker → 'unknown')."""
     try:
-        out = sh(["docker", "ps", "--format", "{{.Names}}|{{.Status}}"])
-    except (OSError, subprocess.SubprocessError) as exc:
-        report("docker", FAIL, f"docker CLI lỗi: {exc}")
-        return
+        out = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}|{{.Status}}"],
+            capture_output=True, text=True, timeout=15, check=False,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
     running = {}
     for line in out.splitlines():
         if "|" in line:
             name, status = line.split("|", 1)
             running[name.strip()] = status.strip()
-    expected = ["crypto-postgres", "crypto-kafka", "crypto-dagster-code",
-                "crypto-dagster-webserver", "crypto-dagster-daemon",
-                "crypto-binance-consumer", "crypto-pathway"]
-    for name in expected:
+    health = {}
+    for label, name in CONTAINERS:
         status = running.get(name, "missing")
-        # "(unhealthy)" cũng startswith "Up" nên phải loại trước.
-        if "healthy" in status or (status.startswith("Up") and "unhealthy" not in status):
-            report(f"container {name}", OK, status)
+        if "healthy" in status:
+            health[label] = "ok"
+        elif status.startswith("Up"):
+            health[label] = "starting"
         else:
-            report(f"container {name}", FAIL, status)
+            health[label] = "down"
+    return health
 
 
-def check_dagster_api() -> None:
-    try:
-        with urllib.request.urlopen("http://localhost:3000/server_info", timeout=10) as r:
-            body = json.loads(r.read().decode())
-        report("dagster API", OK, f"dagster {body.get('dagster_version')}")
-    except OSError as exc:
-        report("dagster API", FAIL, str(exc)[:100])
+def _fmt_int(value) -> str:
+    return f"{value:,}" if isinstance(value, int) else "n/a"
 
 
-def check_kafka() -> None:
-    try:
-        socket.create_connection(("localhost", 29092), timeout=5).close()
-        report("kafka :29092", OK, "port mở")
-    except OSError as exc:
-        report("kafka :29092", FAIL, str(exc)[:100])
+def _fmt_age(age_min) -> str:
+    if age_min is None:
+        return "n/a"
+    if age_min < 1:
+        return f"{age_min * 60:.0f} sec"
+    return f"{age_min:.1f} min"
 
 
-def check_db() -> None:
-    try:
-        import psycopg2
-    except ImportError:
-        report("postgres", WARN, "thiếu psycopg2, bỏ qua check DB")
-        return
-    # Secret qua env, default local chỉ để chạy nhanh trên máy dev.
-    url = os.getenv("DATABASE_URL", "postgresql://admin:secret@localhost:5432/crypto_db")
-    try:
-        conn = psycopg2.connect(url, connect_timeout=5)
-    except Exception as exc:  # noqa: BLE001 - báo lỗi kết nối gọn
-        report("postgres", FAIL, str(exc)[:120])
-        return
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute("SELECT count(*) FROM crypto_news_local;")
-            news = cur.fetchone()[0]
-            cur.execute("SELECT count(*), max(window_start) FROM market_1m;")
-            candles, newest = cur.fetchone()
-        report("db rows", OK, f"news={news} candles={candles}")
-        if newest is not None:
-            age = (datetime.datetime.now(datetime.UTC) - newest).total_seconds() / 60
-            report("market_1m freshness", OK if age < 15 else FAIL,
-                   f"nến mới nhất {age:.1f} phút trước")
-    except Exception as exc:  # noqa: BLE001
-        report("db rows", FAIL, str(exc)[:120])
-    finally:
-        conn.close()
+def _safe(text: str) -> str:
+    """Console Windows (cp1252) không in được ✓✗─ → thay ASCII."""
+    enc = (sys.stdout.encoding or "utf-8").lower()
+    if "utf" in enc:
+        return text
+    return text.replace("✓", "[OK]").replace("✗", "[FAIL]").replace("─", "-")
+
+
+def render(metrics: dict, health: dict[str, str]) -> tuple[str, int]:
+    """Render dashboard text + exit code (pure, test được)."""
+    db = metrics.get("db", {})
+    kafka = metrics.get("kafka", {})
+    binance = metrics.get("binance", {})
+    dagster = metrics.get("dagster_runs", {})
+    lines = ["Crypto Data Platform Status", "─" * 28, ""]
+    failed = 0
+
+    for label, _ in CONTAINERS:
+        state = health.get(label, "unknown")
+        mark = "✓" if state == "ok" else "✗"
+        if state != "ok":
+            failed += 1
+            lines.append(f"{label:16} {mark} ({state})")
+        else:
+            lines.append(f"{label:16} {mark}")
+    lines.append("")
+
+    def _flow(label: str, value: str) -> None:
+        lines.append(f"{label:16} {value}")
+
+    if isinstance(db, dict) and "error" in db:
+        lines.append(f"DB                 ✗ ({db['error'][:60]})")
+        failed += 1
+    else:
+        _flow("DB Rows", _fmt_int(db.get("rows_total")))
+        _flow("OHLCV Freshness", _fmt_age(db.get("newest_candle_age_min")))
+    if isinstance(kafka, dict) and "error" not in kafka:
+        _flow("Kafka Events", _fmt_int(kafka.get("log_end_total")))
+    else:
+        lines.append("Kafka Events       n/a")
+        failed += 1
+    if isinstance(binance, dict) and "error" not in binance:
+        _flow("Kafka Failures", _fmt_int(binance.get("publish_failures_total")))
+        lag = kafka.get("lag_total") if isinstance(kafka, dict) else None
+        _flow("Consumer Lag", _fmt_int(lag))
+    else:
+        lines.append("Kafka Failures     n/a")
+        failed += 1
+    if isinstance(dagster, dict):
+        _flow("Dagster Failed", _fmt_int(dagster.get("failed")))
+        if (dagster.get("failed") or 0) > 0:
+            failed += 1
+    return "\n".join(lines), (1 if failed else 0)
 
 
 def main() -> int:
-    print("== crypto-data-engineering status ==")
-    check_containers()
-    check_dagster_api()
-    check_kafka()
-    check_db()
-    failed = sum(1 for _, s, _ in results if s == FAIL)
-    print(f"== {len(results) - failed}/{len(results)} xanh ==")
-    return 1 if failed else 0
+    if "--json" in sys.argv:
+        import json
+
+        print(json.dumps(collect(), indent=2, default=str))
+        return 0
+    metrics = collect()
+    health = container_health()
+    text, code = render(metrics, health)
+    print(_safe(text))
+    return code
 
 
 if __name__ == "__main__":

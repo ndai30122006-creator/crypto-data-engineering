@@ -138,6 +138,12 @@ def db_stats() -> dict:
     import os
 
     url = os.getenv("DATABASE_URL", "postgresql://admin:secret@localhost:5432/crypto_db")
+    # Bảng env-suffix như PostgresResource.table() (local → *_local).
+    env = os.getenv("DAGSTER_ENVIRONMENT", "local")
+    suffix = "" if env == "prod" else f"_{env}"
+    t_news = f"crypto_news{suffix}"
+    t_snap = f"crypto_market_snapshot{suffix}"
+    t_err = f"data_quality_errors{suffix}"
     try:
         conn = psycopg2.connect(url, connect_timeout=5)
     except Exception as exc:  # noqa: BLE001
@@ -145,10 +151,10 @@ def db_stats() -> dict:
     try:
         query_started = datetime.datetime.now(datetime.UTC).timestamp()
         with conn, conn.cursor() as cur:
-            cur.execute("SELECT count(*) FROM crypto_news_local;")
+            cur.execute(f"SELECT count(*) FROM {t_news};")
             news_total = cur.fetchone()[0]
             cur.execute(
-                "SELECT count(*) FROM crypto_news_local "
+                f"SELECT count(*) FROM {t_news} "
                 "WHERE collected_at > NOW() - INTERVAL '1 hour';"
             )
             news_1h = cur.fetchone()[0]
@@ -159,6 +165,18 @@ def db_stats() -> dict:
             candles_10m, trades_10m = cur.fetchone()
             cur.execute("SELECT max(window_start) FROM market_1m;")
             newest = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM market_1m;")
+            candles_total = cur.fetchone()[0]
+            cur.execute(f"SELECT count(*) FROM {t_snap};")
+            snapshots_total = cur.fetchone()[0]
+            cur.execute(f"SELECT count(*) FROM {t_err};")
+            errors_total = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM market_1m;")
+            candles_total = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM crypto_market_snapshot_local;")
+            snapshots_total = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM data_quality_errors_local;")
+            errors_total = cur.fetchone()[0]
         query_latency = round(
             datetime.datetime.now(datetime.UTC).timestamp() - query_started, 3
         )
@@ -174,6 +192,10 @@ def db_stats() -> dict:
         "news_total": news_total,
         "news_1h": news_1h,
         "candles_10m": candles_10m,
+        "candles_total": candles_total,
+        "snapshots_total": snapshots_total,
+        "errors_total": errors_total,
+        "rows_total": news_total + candles_total + snapshots_total + errors_total,
         "trades_10m_approx": int(trades_10m or 0),
         "trades_per_min_approx": round(float(trades_10m or 0) / 10, 1),
         "newest_candle_at": newest.isoformat() if newest else None,
