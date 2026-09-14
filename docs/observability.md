@@ -45,3 +45,10 @@ Quy ước: services dùng jlogger, Dagster dùng hệ log riêng — không l�
 | `db unreachable` | — | `crypto-postgres` sống không |
 
 Chạy định kỳ bằng Task Scheduler/cron gọi `alert.py` (exit code) — chưa cần server riêng.
+
+## Failure handling (Phase 4)
+
+- Kafka chết: consumer không crash — lỗi flush propagate lên vòng lặp, log + reconnect vô hạn (`test_kafka_down_flush_error_propagates`).
+- WS rớt: đóng kết nối cũ, backoff reconnect, resume (`test_ws_disconnect_reconnects`).
+- Event invalid (`price <= 0`...): reject + log warning + counter, chưa vào Kafka (sau này nâng DLQ topic).
+- Postgres chết: sink retry 3 lần backoff → ghi `/tmp/pathway-dlq.jsonl` → raise to (fail visible, data còn trong DLQ). Env `SINK_RETRIES`, `DLQ_FILE`.

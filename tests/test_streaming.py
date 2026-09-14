@@ -78,6 +78,46 @@ def test_upsert_counters_and_failure():
     reset_metrics()
 
 
+def _candle():
+    return {"symbol": "B", "window_start": 60, "open": 1.0, "high": 2.0,
+            "low": 0.5, "close": 1.5, "volume": 3.0, "trade_count": 2,
+            "price_change_1m": None}
+
+
+def test_write_retry_then_success():
+    from unittest.mock import patch
+
+    from streaming.postgres_sink import write_candle_with_retry
+
+    conn, cur = MagicMock(), MagicMock()
+    conn.__enter__.return_value = conn
+    conn.cursor.return_value.__enter__.return_value = cur
+    cur.execute.side_effect = [RuntimeError("blip"), RuntimeError("blip"), None]
+    with patch("time.sleep"):
+        write_candle_with_retry(conn, _candle(), retries=3, dlq_path=None)
+    assert cur.execute.call_count == 3
+
+
+def test_write_gives_up_to_dlq_and_raises(tmp_path):
+    from unittest.mock import patch
+
+    import orjson
+
+    from streaming.postgres_sink import write_candle_with_retry
+
+    conn, cur = MagicMock(), MagicMock()
+    conn.__enter__.return_value = conn
+    conn.cursor.return_value.__enter__.return_value = cur
+    cur.execute.side_effect = RuntimeError("db down")
+    dlq = str(tmp_path / "dlq.jsonl")
+    with patch("time.sleep"), pytest.raises(RuntimeError, match="after 2 retries"):
+        write_candle_with_retry(conn, _candle(), retries=2, dlq_path=dlq)
+    lines = Path(dlq).read_bytes().splitlines()
+    assert len(lines) == 1
+    saved = orjson.loads(lines[0])
+    assert saved["symbol"] == "B" and "dlq_reason" in saved
+
+
 def test_engine_note_db_merges_sink_stats():
     engine_metrics.reset()
     engine_metrics.note_db({"sink_upserted_total": 7, "sink_failures_total": 0})

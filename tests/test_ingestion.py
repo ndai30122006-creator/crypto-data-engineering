@@ -1,5 +1,7 @@
 """Unit tests cho ingestion (offline: không mạng, không Kafka)."""
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 import ingestion.binance_consumer as consumer
 from ingestion.binance_consumer import beat, on_raw_message
@@ -162,3 +164,62 @@ def test_publish_errback_logs_and_hooks():
     errback = future.add_errback.call_args[0][0]
     errback(RuntimeError("boom"))
     assert hooked == [event]
+
+
+def test_kafka_down_flush_error_propagates(tmp_path):
+    """Step 4.1 — Kafka chết: lỗi flush KHÔNG bị nuốt (vòng lặp ngoài retry)."""
+    from kafka.errors import KafkaConnectionError
+
+    _reset_consumer_state()
+    import orjson
+
+    producer = MagicMock()
+    producer.flush.side_effect = KafkaConnectionError("no broker")
+    cfg = _cfg(tmp_path, flush_every=1)
+    with pytest.raises(KafkaConnectionError):
+        on_raw_message(producer, cfg, orjson.dumps(RAW_TRADE).decode())
+    _reset_consumer_state()
+
+
+def test_ws_disconnect_reconnects():
+    """Step 4.2 — WS rớt: tạo kết nối mới (reconnect), không chết vĩnh viễn."""
+    _reset_consumer_state()
+    consumer._shutdown.clear()
+    created = []
+
+    class FakeWS:
+        def __init__(self, *a, **kw):
+            created.append(self)
+
+        def run_forever(self, **kw):
+            if len(created) >= 2:
+                consumer._shutdown.set()  # lần 2 xong thì dừng vòng lặp
+
+        def close(self):
+            pass
+
+    with (
+        patch("websocket.WebSocketApp", FakeWS),
+        patch.object(consumer, "build_producer") as mock_build,
+        patch.object(consumer._shutdown, "wait", return_value=None),
+    ):
+        mock_build.return_value = MagicMock()
+        consumer.run_forever()
+    assert len(created) == 2  # kết nối đầu + 1 lần reconnect
+    assert consumer._shutdown.is_set()
+    consumer._shutdown.clear()
+    _reset_consumer_state()
+
+
+def test_invalid_trade_rejected_with_metric(tmp_path):
+    """Step 4.3 — trade invalid (price<0): reject + metric (sau này nâng DLQ)."""
+    _reset_consumer_state()
+    import orjson
+
+    producer = MagicMock()
+    cfg = _cfg(tmp_path)
+    bad = orjson.dumps({"e": "trade", "s": "BTCUSDT", "p": "-100", "q": "1", "T": 1}).decode()
+    on_raw_message(producer, cfg, bad)
+    assert producer.send.call_count == 0
+    assert consumer.snapshot_metrics()["events_invalid_total"] == 1
+    _reset_consumer_state()

@@ -6,6 +6,8 @@ Upsert theo PK (symbol, window_start): replay Kafka / restart engine
 import time
 from datetime import UTC, datetime
 
+import orjson
+
 _counters = {
     "sink_upserted_total": 0,
     "sink_failures_total": 0,
@@ -64,6 +66,29 @@ def to_row(candle: dict) -> tuple:
         candle["trade_count"],
         candle.get("price_change_1m"),
     )
+
+
+def write_candle_with_retry(
+    conn, candle: dict, retries: int = 3, dlq_path: str | None = None
+) -> None:
+    """Step 4.4 — Postgres chết: retry backoff, hết retry thì ghi DLQ file
+    rồi raise (fail to, có dấu vết) — không bao giờ im lặng mất data."""
+    last_error: Exception | None = None
+    for attempt in range(max(1, retries)):
+        try:
+            upsert_candles(conn, [candle])
+            return
+        except Exception as exc:  # noqa: BLE001 - retry mọi lỗi DB thoáng qua
+            last_error = exc
+            time.sleep(2**attempt)
+    if dlq_path:
+        try:
+            with open(dlq_path, "ab") as f:
+                f.write(orjson.dumps({**candle, "dlq_reason": str(last_error)}))
+                f.write(b"\n")
+        except OSError:
+            pass
+    raise RuntimeError(f"sink failed after {retries} retries: {last_error}") from last_error
 
 
 def upsert_candles(conn, candles: list[dict]) -> int:

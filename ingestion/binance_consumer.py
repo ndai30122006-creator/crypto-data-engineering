@@ -193,6 +193,9 @@ def on_raw_message(producer, cfg: dict, raw: str) -> None:
         return
     event = parse_trade(msg)
     if event is None:
+        # Invalid (giá/qty <= 0, thiếu field...): reject + log + metric.
+        # Sau này nâng thành DLQ topic riêng.
+        log.warning("skip invalid trade", raw=str(raw)[:200])
         _counters["events_invalid_total"] += 1
         return
 

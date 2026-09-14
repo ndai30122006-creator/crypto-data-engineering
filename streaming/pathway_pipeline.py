@@ -21,7 +21,7 @@ from ingestion.jlog import get_logger
 from streaming import metrics as engine_metrics
 from streaming.postgres_sink import (
     ensure_tables,
-    upsert_candles,
+    write_candle_with_retry,
 )
 from streaming.postgres_sink import (
     snapshot_metrics as sink_metrics,
@@ -89,6 +89,11 @@ def make_sink():
     )
     ensure_tables(conn)
     written = {"n": 0}
+    try:
+        retries = max(1, int(os.getenv("SINK_RETRIES", "3")))
+    except (TypeError, ValueError):
+        retries = 3
+    dlq_path = os.getenv("DLQ_FILE", "/tmp/pathway-dlq.jsonl")
 
     def on_candle(key, row: dict, time, is_addition: bool) -> None:
         if not is_addition:
@@ -104,7 +109,11 @@ def make_sink():
             "trade_count": int(row["trade_count"]),
             "price_change_1m": None,
         }
-        upsert_candles(conn, [candle])
+        try:
+            write_candle_with_retry(conn, candle, retries=retries, dlq_path=dlq_path)
+        except RuntimeError as exc:
+            log.error("sink failed, candle in DLQ", exc=exc, symbol=candle["symbol"])
+            raise
         written["n"] += 1
         stats = engine_metrics.note_candle(
             candle["symbol"], candle["window_start"], candle["close"]
