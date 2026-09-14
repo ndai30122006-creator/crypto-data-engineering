@@ -13,7 +13,6 @@ reconnect backoff, publish liên tục — Dagster chỉ orchestrate batch.
 Shutdown (SIGTERM/SIGINT từ docker stop): ngừng reconnect, đóng WS,
 flush producer (đảm bảo event đã gửi tới broker) rồi mới thoát.
 """
-import logging
 import os
 import signal
 import threading
@@ -28,13 +27,10 @@ from ingestion.events import (
     combined_stream_url,
     parse_trade,
 )
+from ingestion.jlog import get_logger
 from ingestion.kafka_producer import TOPIC_TRADES, build_producer, publish
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
-log = logging.getLogger("binance-consumer")
+log = get_logger("binance-consumer")
 
 _shutdown = threading.Event()
 _current_ws: websocket.WebSocketApp | None = None
@@ -90,7 +86,7 @@ def _positive_int(raw: str | None, default: int) -> int:
 
 def _handle_signal(signum, _frame) -> None:
     global _current_ws
-    log.info("received signal %s, shutting down", signum)
+    log.info("received signal, shutting down", signal=signum)
     _shutdown.set()
     # Đánh thức run_forever đang block: không có dòng này, docker stop
     # phải chờ hết ping timeout rồi ăn SIGKILL → flush không kịp chạy.
@@ -99,7 +95,7 @@ def _handle_signal(signum, _frame) -> None:
         try:
             ws.close()
         except Exception as exc:  # noqa: BLE001 - đang shutdown, cứ thoát
-            log.warning("ws close on shutdown failed: %s", exc)
+            log.warning("ws close on shutdown failed", exc=exc)
 
 
 def run_forever() -> None:
@@ -107,10 +103,10 @@ def run_forever() -> None:
     cfg = load_config()
     url = combined_stream_url(cfg["symbols"])
     log.info(
-        "connect kafka=%s topic=%s symbols=%s",
-        cfg["bootstrap_servers"],
-        cfg["topic"],
-        cfg["symbols"],
+        "connect",
+        kafka=cfg["bootstrap_servers"],
+        topic=cfg["topic"],
+        symbols=cfg["symbols"],
     )
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
@@ -126,7 +122,7 @@ def run_forever() -> None:
                     on_message=lambda _ws, raw: on_raw_message(
                         producer, cfg, raw
                     ),
-                    on_error=lambda _ws, err: log.warning("ws error: %s", err),
+                    on_error=lambda _ws, err: log.warning("ws error", err=str(err)),
                     on_close=lambda _ws, *a: log.warning("ws closed, reconnecting"),
                 )
                 if _shutdown.is_set():
@@ -139,7 +135,7 @@ def run_forever() -> None:
                 if time.time() - connected_at > 60:
                     backoff = 1
             except Exception as exc:  # noqa: BLE001 - vòng lặp service không được chết
-                log.warning("consumer error: %s", exc)
+                log.warning("consumer error", exc=exc)
             finally:
                 _current_ws = None
             if _shutdown.is_set():
@@ -147,12 +143,12 @@ def run_forever() -> None:
             # Đóng WS trước khi reconnect để không rò rỉ kết nối cũ.
             if ws is not None:
                 ws.close()
-            log.info("reconnect in %ss", backoff)
+            log.info("reconnect", backoff_s=backoff)
             _shutdown.wait(backoff)
             backoff = min(backoff * 2, 60)
     finally:
         # Graceful shutdown: đẩy hết event còn kẹt rồi mới thoát.
-        log.info("flushing producer (published=%d)", _published)
+        log.info("flushing producer", published=_published)
         try:
             producer.flush(timeout=15)
         finally:

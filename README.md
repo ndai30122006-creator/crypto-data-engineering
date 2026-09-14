@@ -59,6 +59,7 @@ when `DAGSTER_ENVIRONMENT=local`). `market_1m` is global (streaming).
 | kafka-python 3.0.11 + websocket-client 1.9.2 | Ingestion (producer + Binance WS) |
 | httpx 0.28.1 + feedparser 6.0.14 | RSS fetch & parse (retry/backoff) |
 | msgspec 0.21.1 / orjson 3.12.0 / ciso8601 2.3.3 | Validate + JSON + parse ngày tốc độ cao |
+| jlogger (git) | Logger JSON structured cho services (`ingestion/jlog.py`) |
 | Pydantic (transitive qua Dagster) | Code mình không import trực tiếp nữa |
 | python-dateutil 2.9.0 + pyyaml 6.0.3 | Fallback parse RFC-2822 + đọc config YAML |
 | psycopg2-binary 2.9.13 | Postgres driver |
@@ -134,3 +135,6 @@ docker exec crypto-postgres psql -U admin -d crypto_db -c "SELECT source, count(
   (RSS pubDates) — see `news/parser.py`.
 - Schemas use msgspec Structs: validation happens on `convert`/decode,
   not on direct construction — assets always go through `convert`.
+- Logging 2 hệ, không lẫn: services (consumer/pathway/producer) dùng
+  jlogger JSON qua `ingestion/jlog.py` (`log.info("tick", symbol=..., price=...)`);
+  Dagster assets/resources dùng `context.log` / `get_dagster_logger`.

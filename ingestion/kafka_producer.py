@@ -4,14 +4,14 @@ Key = symbol để cùng coin vào cùng partition (giữ thứ tự / coin).
 Delivery: errback log mọi lỗi gửi (không im lặng mất event),
 caller flush theo nhịp để đảm bảo event tới broker trước khi thoát.
 """
-import logging
-
 import orjson
 from kafka import KafkaProducer
 
+from ingestion.jlog import get_logger
+
 TOPIC_TRADES = "crypto.trades"
 
-log = logging.getLogger("kafka-producer")
+log = get_logger("kafka-producer")
 
 
 def build_producer(bootstrap_servers: str) -> KafkaProducer:
@@ -35,7 +35,7 @@ def publish(producer: KafkaProducer, topic: str, event: dict, on_error=None):
     future = producer.send(topic, key=event["symbol"], value=event)
 
     def _failed(exc):
-        log.error("delivery failed topic=%s symbol=%s: %s", topic, event["symbol"], exc)
+        log.error("delivery failed", exc=exc, topic=topic, symbol=event["symbol"])
         if on_error is not None:
             on_error(exc, event)
 

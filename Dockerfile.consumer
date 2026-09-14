@@ -10,6 +10,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /opt/consumer
 
+# git cho uv clone git deps (jlogger) lúc sync.
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml uv.lock .python-version README.md ./
 # Chỉ cần deps (kafka/websocket); ingestion chạy trực tiếp qua PYTHONPATH,
 # không cài project (tránh hatch build thiếu dagster_project).

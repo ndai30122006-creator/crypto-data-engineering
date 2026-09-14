@@ -170,6 +170,7 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-secret}
     volumes:
       - ./streaming:/opt/streaming/streaming
+      - ./ingestion:/opt/streaming/ingestion
     depends_on:
       kafka:
         condition: service_healthy

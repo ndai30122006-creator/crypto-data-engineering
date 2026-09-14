@@ -11,20 +11,16 @@ hay restart engine đều idempotent. open/close = giá trade sớm/muộn nhấ
 price_change_1m để NULL ở sink — query correlation tự tính bằng LAG()
 trên close (stateless, đúng cả khi replay).
 """
-import logging
 import os
 from datetime import UTC, datetime, timedelta
 
 import pathway as pw
 
+from ingestion.jlog import get_logger
 from streaming.postgres_sink import UPSERT_1M, ensure_tables, to_row
 from streaming.windows import WINDOW_SECONDS
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
-log = logging.getLogger("pathway-pipeline")
+log = get_logger("pathway-pipeline")
 
 
 class TradeSchema(pw.Schema):
@@ -92,11 +88,11 @@ def make_sink():
         written["n"] += 1
         if written["n"] == 1 or written["n"] % 50 == 0:
             log.info(
-                "upserted %d candles, latest %s @ %s close=%s",
-                written["n"],
-                candle["symbol"],
-                datetime.fromtimestamp(candle["window_start"], tz=UTC),
-                candle["close"],
+                "upserted candles",
+                n=written["n"],
+                symbol=candle["symbol"],
+                window=datetime.fromtimestamp(candle["window_start"], tz=UTC).isoformat(),
+                close=candle["close"],
             )
 
     return on_candle
@@ -114,7 +110,7 @@ def main() -> None:
         schema=TradeSchema,
         format="json",
     )
-    log.info("streaming topic=%s → market_1m (tumbling %ss)", topic, WINDOW_SECONDS)
+    log.info("streaming", topic=topic, table="market_1m", window_s=WINDOW_SECONDS)
     candles = build_candles(trades)
     pw.io.subscribe(candles, make_sink())
     pw.run()
