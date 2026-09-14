@@ -257,3 +257,47 @@ def test_streaming_e2e_out_of_order():
     finally:
         producer.close()
         _cleanup(OOO_SYMBOL)
+
+
+LATE_SYMBOL = "E2ELATE"
+
+
+@needs_stack
+def test_streaming_e2e_late_event():
+    """Step 2.2 — nến đã có, event muộn tới sau: high/low/volume/count update."""
+    from kafka import KafkaProducer
+
+    def _send(producer, price, offset_s, qty=1.0):
+        producer.send(
+            TOPIC, key=LATE_SYMBOL,
+            value={"symbol": LATE_SYMBOL, "price": price,
+                   "quantity": qty, "timestamp": T0 + offset_s * 1000},
+        ).get(timeout=15)
+
+    _cleanup(LATE_SYMBOL)
+    producer = KafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        key_serializer=lambda k: k.encode(),
+        value_serializer=lambda v: orjson.dumps(v),
+    )
+    try:
+        _send(producer, 100.0, 5)
+        _send(producer, 105.0, 10)
+        producer.flush()
+        row = _wait_candle(LATE_SYMBOL, 2)
+        assert row is not None, "không có nến ban đầu cho late test"
+        assert float(row[2]) == 100.0  # open giữ nguyên sau này
+
+        _send(producer, 90.0, 30, qty=2.0)  # late: tới sau, thấp nhất
+        producer.flush()
+        row = _wait_candle(LATE_SYMBOL, 3)
+        assert row is not None, "nến không update sau late event"
+        o, h, low, c, vol, cnt = (float(row[2]), float(row[3]), float(row[4]),
+                                  float(row[5]), float(row[6]), row[7])
+        assert o == 100.0, "open phải giữ trade sớm nhất"
+        assert h == 105.0 and low == 90.0, "high/low phải update theo late event"
+        assert c == 90.0, "close theo trade muộn nhất (mới nhất event-time)"
+        assert vol >= 4.0 and cnt >= 3
+    finally:
+        producer.close()
+        _cleanup(LATE_SYMBOL)
