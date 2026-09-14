@@ -5,10 +5,10 @@ Chạy khi stack Docker đang lên:
 Mặc định SKIP hết để `pytest tests/` offline vẫn xanh.
 Host tới infra qua: Kafka localhost:29092, Postgres localhost:5432.
 """
-import json
 import os
 import socket
 
+import orjson
 import pytest
 
 RUN = os.getenv("INTEGRATION") == "1"
@@ -40,7 +40,7 @@ def test_kafka_produce_consume_roundtrip():
     producer = KafkaProducer(
         bootstrap_servers="localhost:29092",
         key_serializer=lambda k: k.encode(),
-        value_serializer=lambda v: json.dumps(v).encode(),
+        value_serializer=lambda v: orjson.dumps(v),
     )
     try:
         producer.send(topic, key=event["symbol"], value=event).get(timeout=15)
@@ -53,7 +53,7 @@ def test_kafka_produce_consume_roundtrip():
         bootstrap_servers="localhost:29092",
         auto_offset_reset="earliest",
         consumer_timeout_ms=15000,
-        value_deserializer=lambda b: json.loads(b.decode()),
+        value_deserializer=lambda b: orjson.loads(b),
     )
     try:
         received = [msg.value for msg in consumer if msg.value.get("symbol") == "TEST"]
@@ -72,12 +72,12 @@ def test_consumer_pipeline_to_real_kafka():
     from ingestion.binance_consumer import on_raw_message
 
     topic = "test.ingestion.pipeline"
-    raw = json.dumps(
+    raw = orjson.dumps(
         {
             "stream": "btcusdt@trade",
             "data": {"e": "trade", "s": "BTCUSDT", "p": "10", "q": "1", "T": 5},
         }
-    )
+    ).decode()
     producer = MagicMock()
     sent = []
 
@@ -95,7 +95,7 @@ def test_consumer_pipeline_to_real_kafka():
 
     real = KafkaProducer(
         bootstrap_servers="localhost:29092",
-        value_serializer=lambda v: json.dumps(v).encode(),
+        value_serializer=lambda v: orjson.dumps(v),
     )
     try:
         real.send(topic, value=sent[0]).get(timeout=15)
@@ -107,7 +107,7 @@ def test_consumer_pipeline_to_real_kafka():
         bootstrap_servers="localhost:29092",
         auto_offset_reset="earliest",
         consumer_timeout_ms=15000,
-        value_deserializer=lambda b: json.loads(b.decode()),
+        value_deserializer=lambda b: orjson.loads(b),
     )
     try:
         got = [m.value for m in consumer if m.value.get("timestamp") == 5]

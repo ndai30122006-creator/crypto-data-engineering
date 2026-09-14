@@ -1,10 +1,10 @@
-"""Pydantic models cho news articles."""
+"""msgspec Structs cho news articles (thay Pydantic: nhanh hơn, đủ dùng)."""
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+import msgspec
 
 
-class RawArticle(BaseModel):
+class RawArticle(msgspec.Struct):
     title: str
     url: str
     source: str
@@ -13,5 +13,5 @@ class RawArticle(BaseModel):
 
 
 class CleanArticle(RawArticle):
-    symbols: list[str] = Field(default_factory=list)
+    symbols: list[str] = msgspec.field(default_factory=list)
     sentiment: str = "neutral"

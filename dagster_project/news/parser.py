@@ -4,7 +4,10 @@ import re
 from datetime import UTC, datetime
 from urllib.parse import urlsplit, urlunsplit
 
-from dateutil import parser as date_parser
+import ciso8601
+from dateutil import (
+    parser as date_parser,  # fallback cho ngày RFC-2822 (ciso8601 chỉ đọc ISO)
+)
 
 # CoinDesk để <content:encoded/> RỖNG trong khi <description> có nội dung.
 # feedparser ưu tiên content:encoded cho cả summary => mất content.
@@ -34,10 +37,18 @@ def parse_published(entry: dict) -> datetime | None:
     raw = entry.get("published") or entry.get("updated")
     if raw:
         try:
+            # Đường nhanh C: ISO-8601 (Google News, đa số feed hiện đại).
+            dt = ciso8601.parse_datetime(raw)
+            return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+        except (ValueError, OverflowError, TypeError):
+            pass
+        try:
+            # Fallback: RFC-2822 kiểu "Fri, 11 Sep 2026 13:44:27 +0000".
             dt = date_parser.parse(raw)
             return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
         except (ValueError, OverflowError, TypeError):
             return None
+    return None
     return None
 
 

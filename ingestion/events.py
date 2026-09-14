@@ -2,7 +2,7 @@
 
 Không import kafka/websocket ở đây để test offline được.
 """
-import json
+import orjson
 
 DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"]
 BINANCE_WS_BASE = "wss://stream.binance.com:9443/stream"
@@ -42,5 +42,5 @@ def parse_trade(msg: dict) -> dict | None:
 
 
 def serialize_event(event: dict) -> bytes:
-    """Serialize event → JSON bytes cho Kafka value."""
-    return json.dumps(event).encode("utf-8")
+    """Serialize event → JSON bytes cho Kafka value (orjson, nhanh)."""
+    return orjson.dumps(event)

@@ -1,8 +1,8 @@
 """Postgres resource: mở connection + các thao tác INSERT gom 1 chỗ."""
-import json
 from contextlib import contextmanager
 from datetime import datetime
 
+import orjson
 import psycopg2
 from dagster import ConfigurableResource
 
@@ -139,7 +139,7 @@ class PostgresResource(ConfigurableResource):
             for err in errors:
                 payload = err["payload"]
                 if not isinstance(payload, str):
-                    payload = json.dumps(payload, default=str)
+                    payload = orjson.dumps(payload, default=str).decode("utf-8")
                 cur.execute(
                     f"""
                     INSERT INTO {self.table("data_quality_errors")}

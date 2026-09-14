@@ -1,6 +1,6 @@
 """Pipeline: fetch_news (raw) -> clean_news -> load_postgres."""
+import msgspec
 from dagster import AssetExecutionContext, asset
-from pydantic import ValidationError
 
 from dagster_project.news.cleaner import (
     classify_sentiment,
@@ -13,6 +13,11 @@ from dagster_project.news.schemas import CleanArticle, RawArticle
 from dagster_project.resources import PostgresResource, RSSFeedResource
 
 
+def _validate(model, data: dict):
+    """msgspec.convert thay Model(**data): coerce + validate 1 bước."""
+    return msgspec.convert(data, type=model)
+
+
 @asset
 def raw_news(context: AssetExecutionContext, rss: RSSFeedResource) -> list[dict]:
     """Fetch tin tức từ tất cả RSS sources."""
@@ -23,8 +28,8 @@ def raw_news(context: AssetExecutionContext, rss: RSSFeedResource) -> list[dict]
     valid: list[dict] = []
     for article in parsed:
         try:
-            valid.append(RawArticle(**article).model_dump(mode="json"))
-        except ValidationError as exc:
+            valid.append(msgspec.to_builtins(_validate(RawArticle, article)))
+        except msgspec.ValidationError as exc:
             context.log.warning(f"skip invalid article {article.get('url')}: {exc}")
     context.log.info(f"fetched {len(valid)} articles ({len(errors)} source errors)")
     context.add_output_metadata(
@@ -36,16 +41,16 @@ def raw_news(context: AssetExecutionContext, rss: RSSFeedResource) -> list[dict]
 @asset
 def cleaned_news(context: AssetExecutionContext, raw_news: list[dict]) -> list[dict]:
     """Clean text, extract symbols, sentiment, dedupe."""
-    deduped = dedupe_by_url([RawArticle(**a) for a in raw_news])
+    deduped = dedupe_by_url([_validate(RawArticle, a) for a in raw_news])
     cleaned: list[dict] = []
     for article in deduped:
-        data = article.model_dump()
+        data = msgspec.to_builtins(article)
         text = f"{data['title']} {data['content']}"
         data["title"] = clean_text(data["title"])
         data["content"] = clean_text(data["content"])
         data["symbols"] = extract_symbols(text)
         data["sentiment"] = classify_sentiment(text)
-        cleaned.append(CleanArticle(**data).model_dump(mode="json"))
+        cleaned.append(msgspec.to_builtins(_validate(CleanArticle, data)))
     context.log.info(f"cleaned {len(cleaned)} articles (from {len(raw_news)} raw)")
     context.add_output_metadata(
         {

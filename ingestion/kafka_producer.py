@@ -4,9 +4,9 @@ Key = symbol để cùng coin vào cùng partition (giữ thứ tự / coin).
 Delivery: errback log mọi lỗi gửi (không im lặng mất event),
 caller flush theo nhịp để đảm bảo event tới broker trước khi thoát.
 """
-import json
 import logging
 
+import orjson
 from kafka import KafkaProducer
 
 TOPIC_TRADES = "crypto.trades"
@@ -19,7 +19,7 @@ def build_producer(bootstrap_servers: str) -> KafkaProducer:
     return KafkaProducer(
         bootstrap_servers=bootstrap_servers.split(","),
         key_serializer=lambda k: k.encode("utf-8"),
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+        value_serializer=lambda v: orjson.dumps(v),
         acks="all",
         retries=5,
         linger_ms=50,

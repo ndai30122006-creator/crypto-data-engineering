@@ -6,6 +6,8 @@ thô để asset check đẩy lên UI + log (mục pipeline metrics).
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+import msgspec
+
 
 @dataclass
 class CheckResult:
@@ -93,12 +95,12 @@ def check_row_count(
 
 
 def check_schema(records: list[dict], model) -> CheckResult:
-    """15. Mọi record parse được qua Pydantic model (không ValidationError)."""
+    """15. Mọi record convert được qua msgspec Struct (không ValidationError)."""
     bad = 0
     first_error = ""
     for r in records:
         try:
-            model(**r)
+            msgspec.convert(r, type=model)
         except Exception as exc:  # noqa: BLE001 - gom mọi lỗi schema
             bad += 1
             if not first_error:

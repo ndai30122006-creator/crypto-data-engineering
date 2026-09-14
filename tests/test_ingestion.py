@@ -46,10 +46,10 @@ def test_parse_trade_rejects_garbage():
 
 
 def test_serialize_event_roundtrip():
-    import json
+    import orjson
 
     event = parse_trade(RAW_TRADE)
-    assert json.loads(serialize_event(event).decode("utf-8")) == event
+    assert orjson.loads(serialize_event(event)) == event
 
 
 def test_publish_uses_symbol_as_key():
@@ -84,11 +84,12 @@ def test_on_raw_message_publishes_and_beats(tmp_path):
     consumer._last_beat = 0.0
     consumer._published = 0
     consumer._flushed_at = 0
-    import json
     from pathlib import Path
 
+    import orjson
+
     producer = MagicMock()
-    on_raw_message(producer, _cfg(tmp_path), json.dumps(RAW_TRADE))
+    on_raw_message(producer, _cfg(tmp_path), orjson.dumps(RAW_TRADE).decode())
     assert producer.send.call_count == 1
     assert Path(_cfg(tmp_path)["heartbeat_file"]).exists()  # nhịp tim đã đập
     consumer._last_beat = 0.0
@@ -127,12 +128,12 @@ def test_on_raw_message_flushes_on_cadence(tmp_path):
     consumer._published = 0
     consumer._flushed_at = 0
     consumer._last_beat = 0.0
-    import json
+    import orjson
 
     producer = MagicMock()
     cfg = _cfg(tmp_path, flush_every=3)
     for _ in range(3):
-        on_raw_message(producer, cfg, json.dumps(RAW_TRADE))
+        on_raw_message(producer, cfg, orjson.dumps(RAW_TRADE).decode())
     assert producer.flush.call_count == 1
     consumer._published = 0
     consumer._flushed_at = 0

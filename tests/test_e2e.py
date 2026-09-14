@@ -3,8 +3,9 @@
 Binance raw → parse → serialize → aggregate OHLCV → to_row →
 upsert SQL (mock conn) → correlation. Rớt ở đâu là biết nấc đó sai.
 """
-import json
 from unittest.mock import MagicMock
+
+import orjson
 
 from ingestion.events import parse_trade, serialize_event
 from streaming.correlation import find_correlations, price_changes
@@ -32,7 +33,7 @@ def test_e2e_parse_serialize_aggregate_sink():
     # 1. Parse + serialize (đi qua Kafka wire format rồi về).
     events = [parse_trade(m) for m in RAW_WS]
     assert all(e and e["symbol"] == "BTCUSDT" for e in events)
-    assert [json.loads(serialize_event(e).decode()) for e in events] == events
+    assert [orjson.loads(serialize_event(e)) for e in events] == events
     # 2. Aggregate thành nến.
     candles = aggregate(events)
     assert len(candles) == 2

@@ -57,7 +57,8 @@ when `DAGSTER_ENVIRONMENT=local`). `market_1m` is global (streaming).
 | Kafka (KRaft, single broker) | Realtime trades buffer (`crypto.trades`) |
 | Pathway 0.32.1 | Stream processing (tumbling 1m OHLCV, Linux-only) |
 | httpx + feedparser | RSS fetch & parse (retry/backoff) |
-| Pydantic | Data validation |
+| Pydantic | Dagster nội bộ (code mình dùng msgspec) |
+| msgspec / orjson / ciso8601 | Validate + JSON + parse ngày tốc độ cao |
 | psycopg2 | Postgres driver |
 | Docker Compose | 7 services: postgres, kafka, dagster-code (gRPC 4000), webserver, daemon, binance-consumer, pathway |
 | uv | Package + project manager (`pyproject.toml` + `uv.lock`) |

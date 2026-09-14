@@ -20,6 +20,7 @@ Hạ tầng hiện tại (đã vượt plan gốc):
 - Logger: asset dùng `context.log` + `add_output_metadata`; resource dùng `get_dagster_logger()`. Chỉ dùng `@asset`, `@op` chỉ cần biết.
 - Healthcheck cả 6 services trong `docker-compose.yml` (postgres, code, webserver, daemon, kafka, consumer heartbeat).
 - Data quality: `quality/checks.py` pure (freshness/dup/null/row-count/schema/metrics) + 6 `@asset_check` đăng ký trong `defs`, test `tests/test_quality.py`.
+- Libs tốc độ: msgspec (thay Pydantic ở code mình — Dagster vẫn cần Pydantic), orjson (thay json), ciso8601 đọc ISO nhanh + dateutil fallback RFC-2822.
 
 Nguyên tắc phân biệt tool:
 

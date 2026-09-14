@@ -5,16 +5,19 @@ description = "Mini real-time Crypto Data Platform: RSS news + CoinGecko snapsho
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "ciso8601>=2.3.3",
     "dagster>=1.10,<2",
     "dagster-webserver>=1.10,<2",
     "feedparser",
     "httpx",
     "kafka-python>=3.0.11",
+    "msgspec",
+    "orjson",
+    "ciso8601",
     # Pathway chỉ có wheel Linux/macOS (không có win_amd64):
     # local Windows sync bỏ qua, image Docker (linux) cài đủ.
     "pathway; sys_platform != 'win32'",
     "psycopg2-binary",
-    "pydantic>=2",
     "python-dateutil",
     "pyyaml",
     "websocket-client>=1.9.2",

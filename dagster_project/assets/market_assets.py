@@ -1,8 +1,8 @@
 """Pipeline: fetch_market -> validate_market -> loaded_snapshot (mỗi giờ)."""
 from datetime import UTC, datetime
 
+import msgspec
 from dagster import AssetExecutionContext, asset
-from pydantic import ValidationError
 
 from dagster_project.market.schemas import RawMarket, from_coingecko
 from dagster_project.market.validator import validate
@@ -18,8 +18,8 @@ def fetch_market(
     valid: list[dict] = []
     for item in raw_items:
         try:
-            valid.append(RawMarket(**from_coingecko(item)).model_dump(mode="json"))
-        except ValidationError as exc:
+            valid.append(msgspec.to_builtins(msgspec.convert(from_coingecko(item), type=RawMarket)))
+        except msgspec.ValidationError as exc:
             context.log.warning(f"skip invalid coin {item.get('id')}: {exc}")
     context.log.info(f"fetched {len(valid)} coins")
     context.add_output_metadata({"coins": len(valid), "raw_items": len(raw_items)})
@@ -31,7 +31,7 @@ def validate_market(
     context: AssetExecutionContext, fetch_market: list[dict]
 ) -> dict:
     """Tách valid/errors theo rules (validate 1 lần duy nhất)."""
-    records = [RawMarket(**a).model_dump(mode="json") for a in fetch_market]
+    records = [msgspec.to_builtins(msgspec.convert(a, type=RawMarket)) for a in fetch_market]
     valid, errors = validate(records)
     for err in errors:
         context.log.warning(f"bad record: {err['error']} | {err['payload'].get('symbol')}")

@@ -13,7 +13,6 @@ reconnect backoff, publish liên tục — Dagster chỉ orchestrate batch.
 Shutdown (SIGTERM/SIGINT từ docker stop): ngừng reconnect, đóng WS,
 flush producer (đảm bảo event đã gửi tới broker) rồi mới thoát.
 """
-import json
 import logging
 import os
 import signal
@@ -21,6 +20,7 @@ import threading
 import time
 from pathlib import Path
 
+import orjson
 import websocket
 
 from ingestion.events import (
@@ -164,8 +164,8 @@ def on_raw_message(producer, cfg: dict, raw: str) -> None:
     """Parse 1 raw WS message → publish nếu là trade hợp lệ + đập nhịp tim."""
     global _published, _flushed_at
     try:
-        msg = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+        msg = orjson.loads(raw)
+    except (orjson.JSONDecodeError, TypeError):
         log.warning("skip non-JSON message")
         return
     event = parse_trade(msg)

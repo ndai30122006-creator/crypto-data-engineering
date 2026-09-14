@@ -1,6 +1,7 @@
 """Unit tests cho market fetcher/schemas/validator (mock, offline)."""
+import msgspec
 import pytest
-from pydantic import ValidationError
+from msgspec import ValidationError
 
 from dagster_project.market.schemas import RawMarket, from_coingecko
 from dagster_project.market.validator import validate, validate_record
@@ -25,12 +26,13 @@ def test_from_coingecko_maps_fields():
 
 
 def test_from_coingecko_missing_price_rejected():
+    # msgspec Struct không validate ở constructor → dùng convert như asset.
     with pytest.raises(ValidationError):
-        RawMarket(**from_coingecko({**MOCK_ITEM, "current_price": None}))
+        msgspec.convert(from_coingecko({**MOCK_ITEM, "current_price": None}), type=RawMarket)
 
 
 def test_validate_record_ok():
-    assert validate_record(RawMarket(**from_coingecko(MOCK_ITEM)).model_dump()) is None
+    assert validate_record(msgspec.to_builtins(RawMarket(**from_coingecko(MOCK_ITEM)))) is None
 
 
 def test_validate_record_bad_price():
@@ -47,7 +49,7 @@ def test_validate_record_bad_market_cap():
 
 
 def test_validate_splits_valid_and_errors():
-    good = RawMarket(**from_coingecko(MOCK_ITEM)).model_dump()
+    good = msgspec.to_builtins(RawMarket(**from_coingecko(MOCK_ITEM)))
     bad = {"symbol": "XXX", "price": 0}
     valid, errors = validate([good, bad])
     assert len(valid) == 1

@@ -1,9 +1,8 @@
-"""Pydantic models + mapping field CoinGecko về tên nội bộ."""
+"""msgspec Structs + mapping field CoinGecko về tên nội bộ (thay Pydantic)."""
+import msgspec
 
-from pydantic import BaseModel
 
-
-class RawMarket(BaseModel):
+class RawMarket(msgspec.Struct):
     symbol: str
     name: str
     price: float
