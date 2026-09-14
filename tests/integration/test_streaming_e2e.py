@@ -67,13 +67,35 @@ def _pg():
     return psycopg2.connect(DATABASE_URL)
 
 
-def _cleanup() -> None:
+def _cleanup(symbol: str = SYMBOL) -> None:
     conn = _pg()
     try:
         with conn, conn.cursor() as cur:
-            cur.execute("DELETE FROM market_1m WHERE symbol = %s;", (SYMBOL,))
+            cur.execute("DELETE FROM market_1m WHERE symbol = %s;", (symbol,))
     finally:
         conn.close()
+
+
+def _wait_candle(symbol: str, min_count: int, timeout_s: float = 60):
+    """Poll market_1m tới khi đủ count hoặc hết timeout (chống treo)."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        conn = _pg()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT symbol, window_start, open, high, low, close, "
+                    "volume, trade_count "
+                    "FROM market_1m WHERE symbol = %s;",
+                    (symbol,),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if row and row[7] >= min_count:
+            return row
+        time.sleep(2)
+    return None
 
 
 def _publish_all(producer) -> None:
@@ -102,26 +124,8 @@ def test_streaming_e2e_fake_to_postgres():
     try:
         _publish_all(producer)
 
-        row = None
         # Chờ engine xử lý có timeout 60s — không treo vô hạn nếu pipeline kẹt.
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            conn = _pg()
-            try:
-                with conn, conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT symbol, window_start, open, high, low, close, "
-                        "volume, trade_count "
-                        "FROM market_1m WHERE symbol = %s;",
-                        (SYMBOL,),
-                    )
-                    row = cur.fetchone()
-            finally:
-                conn.close()
-            if row and row[7] >= len(FAKE_TRADES):
-                break
-            time.sleep(2)
-
+        row = _wait_candle(SYMBOL, len(FAKE_TRADES))
         assert row is not None, "engine không ghi nến E2ETEST trong 60s"
         from datetime import UTC, datetime
 
@@ -213,3 +217,43 @@ def test_streaming_e2e_invalid_events_ignored():
                 cur.execute("DELETE FROM market_1m WHERE symbol = %s;", (BAD_SYMBOL,))
         finally:
             conn.close()
+
+
+OOO_SYMBOL = "E2EOOO"
+# Thứ tự arrival: A → B → C. Thứ tự event-time: C → A → B.
+# Nến đúng theo event-time: open=100 (C) high=105 low=98 close=98 (B).
+OOO_TRADES = [
+    ("A", 105.0, 10),
+    ("B", 98.0, 20),
+    ("C", 100.0, 5),
+]
+
+
+@needs_stack
+def test_streaming_e2e_out_of_order():
+    """Step 2.1 — events tới đảo thứ tự, nến vẫn đúng theo event-time."""
+    from kafka import KafkaProducer
+
+    _cleanup(OOO_SYMBOL)
+    producer = KafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        key_serializer=lambda k: k.encode(),
+        value_serializer=lambda v: orjson.dumps(v),
+    )
+    try:
+        for _, price, offset_s in OOO_TRADES:  # arrival A → B → C
+            producer.send(
+                TOPIC, key=OOO_SYMBOL,
+                value={"symbol": OOO_SYMBOL, "price": price,
+                       "quantity": 1.0, "timestamp": T0 + offset_s * 1000},
+            ).get(timeout=15)
+        producer.flush()
+        row = _wait_candle(OOO_SYMBOL, len(OOO_TRADES))
+        assert row is not None, "engine không ghi nến E2EOOO trong 60s"
+        o, h, low, c = (float(row[2]), float(row[3]), float(row[4]), float(row[5]))
+        assert (o, h, low, c) == (100.0, 105.0, 98.0, 98.0), (
+            f"nến sai theo event-time (arrival A→B→C): {(o, h, low, c)}"
+        )
+    finally:
+        producer.close()
+        _cleanup(OOO_SYMBOL)
