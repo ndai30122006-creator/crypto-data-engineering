@@ -10,8 +10,6 @@ $env:INTEGRATION="1"; uv run pytest tests/integration/ -q
 """
 import time
 
-import orjson
-
 from integration.helpers import (
     T0,
     TOPIC,

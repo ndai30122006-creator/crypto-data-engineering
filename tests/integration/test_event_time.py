@@ -1,7 +1,6 @@
 """Step 2.4 — regression event-time: out-of-order, late, duplicate,
 multiple symbols. Engine live + DB thật, skip khi thiếu infra."""
 from integration.helpers import (
-    T0,
     as_floats,
     cleanup,
     make_producer,
