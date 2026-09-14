@@ -29,7 +29,11 @@ class CoinGeckoResource(ConfigurableResource):
                 resp.raise_for_status()
                 data = resp.json()
                 if not isinstance(data, list):
-                    raise ValueError(f"unexpected response: {str(data)[:200]}")
+                    # Cố ý ValueError (không phải TypeError): retry handler
+                    # bên dưới bắt nó để thử lại khi API trả payload lạ.
+                    raise ValueError(  # noqa: TRY004
+                        f"unexpected response: {str(data)[:200]}"
+                    )
                 return data
             except (
                 httpx.TimeoutException,

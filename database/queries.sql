@@ -1,4 +1,6 @@
 -- Queries phân tích cho crypto-data-engineering
+-- Lưu ý: bảng có hậu tố theo env (local → crypto_news_local,
+-- crypto_market_snapshot_local). Thay tên bảng tương ứng khi chạy.
 
 -- 1. Tin mới nhất
 SELECT title, source, symbols, sentiment, collected_at

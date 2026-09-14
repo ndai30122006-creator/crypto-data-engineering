@@ -1,5 +1,5 @@
 """Pipeline: fetch_market -> validate_market -> loaded_snapshot (mỗi giờ)."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from dagster import AssetExecutionContext, asset
 from pydantic import ValidationError
@@ -30,16 +30,14 @@ def fetch_market(
 def validate_market(
     context: AssetExecutionContext, fetch_market: list[dict]
 ) -> dict:
-    """Tách valid/errors theo rules."""
-    valid, errors = validate([RawMarket(**a).model_dump() for a in fetch_market])
+    """Tách valid/errors theo rules (validate 1 lần duy nhất)."""
+    records = [RawMarket(**a).model_dump(mode="json") for a in fetch_market]
+    valid, errors = validate(records)
     for err in errors:
         context.log.warning(f"bad record: {err['error']} | {err['payload'].get('symbol')}")
     context.log.info(f"valid={len(valid)} errors={len(errors)}")
     context.add_output_metadata({"valid": len(valid), "errors": len(errors)})
-    return {
-        "valid": [RawMarket(**v).model_dump(mode="json") for v in valid],
-        "errors": errors,
-    }
+    return {"valid": valid, "errors": errors}
 
 
 @asset
@@ -49,7 +47,7 @@ def loaded_snapshot(
     validate_market: dict,
 ) -> int:
     """INSERT snapshot + ghi bad records vào data_quality_errors."""
-    collected_at = datetime.now(timezone.utc)
+    collected_at = datetime.now(UTC)
     inserted = postgres.insert_snapshot(collected_at, validate_market["valid"])
     postgres.insert_errors(validate_market["errors"])
     context.log.info(

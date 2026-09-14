@@ -1,8 +1,7 @@
 """Chuẩn hoá feedparser entries thành dict khớp RawArticle."""
 import calendar
 import re
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from urllib.parse import urlsplit, urlunsplit
 
 from dateutil import parser as date_parser
@@ -21,22 +20,22 @@ def sanitize_feed_xml(content: bytes) -> bytes:
 
 
 def normalize_url(url: str) -> str:
-    """Bỏ query params (utm_*) và fragment để dedupe chính xác."""
+    """Bỏ toàn bộ query + fragment để dedupe (kể cả utm_*)."""
     parts = urlsplit(url.strip())
     path = parts.path.rstrip("/") or "/"
     return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
-def parse_published(entry: dict) -> Optional[datetime]:
+def parse_published(entry: dict) -> datetime | None:
     if entry.get("published_parsed"):
         return datetime.fromtimestamp(
-            calendar.timegm(entry["published_parsed"]), tz=timezone.utc
+            calendar.timegm(entry["published_parsed"]), tz=UTC
         )
     raw = entry.get("published") or entry.get("updated")
     if raw:
         try:
             dt = date_parser.parse(raw)
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
         except (ValueError, OverflowError, TypeError):
             return None
     return None
@@ -49,7 +48,7 @@ def extract_content(entry: dict) -> str:
     return entry.get("summary") or entry.get("description") or ""
 
 
-def parse_entry(source: str, entry: dict) -> Optional[dict]:
+def parse_entry(source: str, entry: dict) -> dict | None:
     url = (entry.get("link") or "").strip()
     title = (entry.get("title") or "").strip()
     if not url or not title:

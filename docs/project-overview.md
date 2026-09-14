@@ -51,7 +51,7 @@ correlation query (Phase 5).
 
 - **API**: CoinGecko `/coins/markets` (free, verified status 200,
   fields đầy đủ). Rate limit ~5-15/phút → job giờ là dư dả.
-- **Fetch** (`market/fetcher.py`): httpx + retry 3 lần backoff (1s/2s/4s).
+- **Fetch** (`resources/coingecko.py` → `CoinGeckoResource`): httpx + retry 3 lần backoff (1s/2s/4s).
 - **Mapping** (`market/schemas.py:from_coingecko`): lớp cách ly tên field
   (`current_price`→`price`...). Pydantic `RawMarket`, giá null → loại.
 - **Validate** (`market/validator.py`): price>0, market_cap>0, symbol
@@ -93,7 +93,7 @@ C:\crypto-data-engineering\  (GitHub: ndai30122006-creator/crypto-data-engineeri
 ├── database/schema.sql, database/queries.sql
 ├── dagster_project/
 │   ├── definitions.py        (2 jobs + 2 schedules)
-│   ├── resources.py          (PostgresResource)
+│   ├── resources/          (RSSFeedResource, CoinGeckoResource, PostgresResource)
 │   ├── news/                 (collector, parser, cleaner, schemas)
 │   ├── market/               (fetcher, schemas, validator)
 │   └── assets/               (news_assets, market_assets)

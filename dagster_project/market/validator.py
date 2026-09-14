@@ -1,8 +1,7 @@
 """Rules kiểm tra + tách valid/errors (bad-record pattern)."""
-from typing import Optional
 
 
-def validate_record(record: dict) -> Optional[str]:
+def validate_record(record: dict) -> str | None:
     """Trả về None nếu OK, ngược lại trả về lý do lỗi."""
     if not record.get("symbol"):
         return "missing symbol"

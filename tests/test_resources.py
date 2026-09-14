@@ -3,9 +3,11 @@
 Vì sao mock: test logic của mình, không test hạ tầng.
 Chạy offline trong <1s thay vì dựng Postgres + gọi API thật.
 """
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 from dagster import build_op_context
+
 from dagster_project.assets.market_assets import (
     fetch_market,
     loaded_snapshot,
@@ -126,7 +128,7 @@ def test_fetch_market_with_mock_api():
 
 def test_loaded_snapshot_writes_errors_to_mock():
     """Bad records phải tới errors, không drop lặng lẽ."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     mock_pg = MockPostgres()
     result = loaded_snapshot(
@@ -153,4 +155,4 @@ def test_loaded_snapshot_writes_errors_to_mock():
     assert len(mock_pg.errors) == 1
     assert mock_pg.errors[0]["error"] == "price <= 0"
     assert isinstance(mock_pg.snapshots[0], dict)
-    assert datetime.now(timezone.utc) is not None
+    assert datetime.now(UTC) is not None

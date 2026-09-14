@@ -89,7 +89,7 @@ Daemon đọc schedule này và kích job đúng giờ. Không cần viết vòn
 (`def cleaned_news(..., raw_news: list)` → tự hiểu phụ thuộc `raw_news`),
 không cần viết `A >> B` thủ công.
 
-**Resource** (`resources.py`): kết nối dùng chung (Postgres) tiêm vào asset
+**Resource** (`resources/` package): kết nối dùng chung (Postgres, RSS, CoinGecko) tiêm vào asset
 qua tham số, lấy từ biến môi trường `DATABASE_URL` — code không hardcode
 password.
 

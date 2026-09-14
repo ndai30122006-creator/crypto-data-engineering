@@ -1,5 +1,6 @@
 """Postgres resource: mở connection + các thao tác INSERT gom 1 chỗ."""
 import json
+from contextlib import contextmanager
 from datetime import datetime
 
 import psycopg2
@@ -22,6 +23,21 @@ class PostgresResource(ConfigurableResource):
 
     def get_conn(self):
         return psycopg2.connect(self.conn_str)
+
+    @contextmanager
+    def _session(self):
+        """Mở conn + ensure tables, yield cursor, đóng an toàn.
+
+        Gom 3 dòng lặp ở mọi insert_*() vào 1 chỗ; kể cả khi
+        connect lỗi thì finally cũng không chạm biến chưa gán.
+        """
+        conn = self.get_conn()
+        try:
+            self.ensure_tables(conn)
+            with conn, conn.cursor() as cur:
+                yield cur
+        finally:
+            conn.close()
 
     def ensure_tables(self, conn) -> None:
         """Tự tạo bảng theo tên đã resolve (CREATE IF NOT EXISTS)."""
@@ -64,86 +80,71 @@ class PostgresResource(ConfigurableResource):
 
     def insert_news(self, articles: list[dict]) -> int:
         """INSERT tin, bỏ qua URL đã có. Trả về số dòng mới."""
-        conn = self.get_conn()
         inserted = 0
-        try:
-            self.ensure_tables(conn)
-            with conn, conn.cursor() as cur:
-                for article in articles:
-                    cur.execute(
-                        f"""
-                        INSERT INTO {self.table("crypto_news")}
-                            (title, url, source, published_at,
-                             content, sentiment, symbols)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (url) DO NOTHING
-                        """,
-                        (
-                            article["title"],
-                            article["url"],
-                            article["source"],
-                            article["published_at"],
-                            article["content"],
-                            article["sentiment"],
-                            article["symbols"],
-                        ),
-                    )
-                    inserted += cur.rowcount
-        finally:
-            conn.close()
+        with self._session() as cur:
+            for article in articles:
+                cur.execute(
+                    f"""
+                    INSERT INTO {self.table("crypto_news")}
+                        (title, url, source, published_at,
+                         content, sentiment, symbols)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (url) DO NOTHING
+                    """,
+                    (
+                        article["title"],
+                        article["url"],
+                        article["source"],
+                        article["published_at"],
+                        article["content"],
+                        article["sentiment"],
+                        article["symbols"],
+                    ),
+                )
+                inserted += cur.rowcount
         return inserted
 
     def insert_snapshot(self, collected_at: datetime, coins: list[dict]) -> int:
         """INSERT 1 batch snapshot cùng mốc giờ. Trả về số dòng mới."""
-        conn = self.get_conn()
         inserted = 0
-        try:
-            self.ensure_tables(conn)
-            with conn, conn.cursor() as cur:
-                for coin in coins:
-                    cur.execute(
-                        f"""
-                        INSERT INTO {self.table("crypto_market_snapshot")}
-                            (collected_at, symbol, name, price, market_cap,
-                             circulating_supply, volume_24h, price_change_24h)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (collected_at, symbol) DO NOTHING
-                        """,
-                        (
-                            collected_at,
-                            coin["symbol"],
-                            coin["name"],
-                            coin["price"],
-                            coin["market_cap"],
-                            coin["circulating_supply"],
-                            coin["volume_24h"],
-                            coin["price_change_24h"],
-                        ),
-                    )
-                    inserted += cur.rowcount
-        finally:
-            conn.close()
+        with self._session() as cur:
+            for coin in coins:
+                cur.execute(
+                    f"""
+                    INSERT INTO {self.table("crypto_market_snapshot")}
+                        (collected_at, symbol, name, price, market_cap,
+                         circulating_supply, volume_24h, price_change_24h)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (collected_at, symbol) DO NOTHING
+                    """,
+                    (
+                        collected_at,
+                        coin["symbol"],
+                        coin["name"],
+                        coin["price"],
+                        coin["market_cap"],
+                        coin["circulating_supply"],
+                        coin["volume_24h"],
+                        coin["price_change_24h"],
+                    ),
+                )
+                inserted += cur.rowcount
         return inserted
 
     def insert_errors(self, errors: list[dict]) -> None:
         """Ghi bad records, không bao giờ drop lặng lẽ."""
         if not errors:
             return
-        conn = self.get_conn()
-        try:
-            self.ensure_tables(conn)
-            with conn, conn.cursor() as cur:
-                for err in errors:
-                    payload = err["payload"]
-                    if not isinstance(payload, str):
-                        payload = json.dumps(payload, default=str)
-                    cur.execute(
-                        f"""
-                        INSERT INTO {self.table("data_quality_errors")}
-                            (pipeline, payload, error)
-                        VALUES (%s, %s, %s)
-                        """,
-                        (err["pipeline"], payload, err["error"]),
-                    )
-        finally:
-            conn.close()
+        with self._session() as cur:
+            for err in errors:
+                payload = err["payload"]
+                if not isinstance(payload, str):
+                    payload = json.dumps(payload, default=str)
+                cur.execute(
+                    f"""
+                    INSERT INTO {self.table("data_quality_errors")}
+                        (pipeline, payload, error)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (err["pipeline"], payload, err["error"]),
+                )

@@ -1,5 +1,4 @@
 """Pydantic models + mapping field CoinGecko về tên nội bộ."""
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -8,10 +7,10 @@ class RawMarket(BaseModel):
     symbol: str
     name: str
     price: float
-    market_cap: Optional[float] = None
-    circulating_supply: Optional[float] = None
-    volume_24h: Optional[float] = None
-    price_change_24h: Optional[float] = None
+    market_cap: float | None = None
+    circulating_supply: float | None = None
+    volume_24h: float | None = None
+    price_change_24h: float | None = None
 
 
 def from_coingecko(item: dict) -> dict:

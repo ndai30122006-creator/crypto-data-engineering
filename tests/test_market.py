@@ -1,5 +1,6 @@
 """Unit tests cho market fetcher/schemas/validator (mock, offline)."""
 import pytest
+from pydantic import ValidationError
 
 from dagster_project.market.schemas import RawMarket, from_coingecko
 from dagster_project.market.validator import validate, validate_record
@@ -24,7 +25,7 @@ def test_from_coingecko_maps_fields():
 
 
 def test_from_coingecko_missing_price_rejected():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         RawMarket(**from_coingecko({**MOCK_ITEM, "current_price": None}))
 
 

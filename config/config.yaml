@@ -3,10 +3,3 @@ rss_feeds:
   cointelegraph: "https://cointelegraph.com/rss"
   bitcoin_magazine: "https://bitcoinmagazine.com/feed"
   google_news_crypto: "https://news.google.com/rss/search?q=crypto+bitcoin&hl=en-US&gl=US&ceid=US%3Aen"
-
-fetch:
-  timeout_seconds: 30
-  user_agent: "crypto-data-platform/1.0"
-
-schedule:
-  cron: "*/5 * * * *"
