@@ -49,20 +49,22 @@ when `DAGSTER_ENVIRONMENT=local`). `market_1m` is global (streaming).
 
 ## Tech stack
 
-| Tech | Role |
+| Tech (locked in `uv.lock`) | Role |
 |---|---|
-| Python 3.12 | Pipeline code |
-| Dagster | Orchestration (6 assets + 6 checks, jobs + schedules) |
+| Python 3.12 | Pipeline code (`.python-version`) |
+| Dagster 1.13.22 | Orchestration (6 assets + 6 checks, jobs + schedules) |
 | PostgreSQL 16 | Storage (`crypto_db`) |
-| Kafka (KRaft, single broker) | Realtime trades buffer (`crypto.trades`) |
+| Kafka 3.9.0 (KRaft, single broker) | Realtime trades buffer (`crypto.trades`) |
 | Pathway 0.32.1 | Stream processing (tumbling 1m OHLCV, Linux-only) |
-| httpx + feedparser | RSS fetch & parse (retry/backoff) |
-| Pydantic | Dagster nội bộ (code mình dùng msgspec) |
-| msgspec / orjson / ciso8601 | Validate + JSON + parse ngày tốc độ cao |
-| psycopg2 | Postgres driver |
+| kafka-python 3.0.11 + websocket-client 1.9.2 | Ingestion (producer + Binance WS) |
+| httpx 0.28.1 + feedparser 6.0.14 | RSS fetch & parse (retry/backoff) |
+| msgspec 0.21.1 / orjson 3.12.0 / ciso8601 2.3.3 | Validate + JSON + parse ngày tốc độ cao |
+| Pydantic (transitive qua Dagster) | Code mình không import trực tiếp nữa |
+| python-dateutil 2.9.0 + pyyaml 6.0.3 | Fallback parse RFC-2822 + đọc config YAML |
+| psycopg2-binary 2.9.13 | Postgres driver |
 | Docker Compose | 7 services: postgres, kafka, dagster-code (gRPC 4000), webserver, daemon, binance-consumer, pathway |
 | uv | Package + project manager (`pyproject.toml` + `uv.lock`) |
-| pytest | 56 unit tests (offline) + integration tests (`INTEGRATION=1`) |
+| pytest 9.1.1 | 56 unit tests (offline) + integration tests (`INTEGRATION=1`) |
 
 ## Project structure
 
