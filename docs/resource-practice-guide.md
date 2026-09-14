@@ -64,9 +64,9 @@ class MockPostgres:  # ghi vào RAM thay vì DB
   trực tiếp — stub tự chế bị từ chối. Đây là chuẩn của Dagster University.
 - **Vì sao mock cả `psycopg2.connect`:** assert được SQL chứa đúng bảng
   theo env + `ON CONFLICT`, không cần DB thật.
-- **Bài học từ test fail:** `price=0` qua được Pydantic (vẫn là số!) nhưng
+- **Bài học từ test fail:** `price=0` qua được msgspec (vẫn là số!) nhưng
   rớt ở validator business rule → project có **2 tầng validate**:
-  kiểu dữ liệu (Pydantic) rồi business rules (validator). Test sửa thành
+  kiểu dữ liệu (msgspec) rồi business rules (validator). Test sửa thành
   kiểm tra cả chuỗi fetch → validate.
 
 ## P5 — Config trên UI (bạn tự làm)

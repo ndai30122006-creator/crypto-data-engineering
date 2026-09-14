@@ -77,7 +77,7 @@ Pipeline chạy tự động mỗi 5 phút, không ai ngồi canh → phải có
 **luật kiểm tra** để rác không lọt vào DB. 3 tầng phòng thủ:
 
 ```
-Tầng 1: Validate khi parse (Pydantic)     → bỏ bài thiếu title/url
+Tầng 1: Validate khi parse (msgspec)      → bỏ bài thiếu title/url
 Tầng 2: Constraint ở DB (UNIQUE, NOT NULL) → chặn trùng/sai ở cửa cuối
 Tầng 3: Bảng data_quality_errors           → ghi lại bad records để soi
 ```
@@ -86,7 +86,7 @@ Tầng 3: Bảng data_quality_errors           → ghi lại bad records để s
 
 | Tầng | Luật | File |
 |---|---|---|
-| Pydantic | title/url bắt buộc | `news/schemas.py` (`RawArticle`) |
+| msgspec | title/url bắt buộc | `news/schemas.py` (`RawArticle`) |
 | Parser | bỏ entry thiếu link/title | `news/parser.py` (`parse_entry`) |
 | DB | `url UNIQUE`, `title NOT NULL` | `database/schema.sql` |
 | Load | `ON CONFLICT DO NOTHING` | `news_assets.py` (`loaded_news`) |
@@ -120,5 +120,5 @@ Trong project đạt được nhờ: dedupe URL trong batch + `ON CONFLICT`
    chặn thế nào (báo lỗi hay bỏ qua?).
 2. Viết query đếm % bài không extract được symbols nào — đó có phải
    "bad data" không? Vì sao có/không?
-3. Thêm 1 rule Pydantic mới (vd: `title` tối thiểu 10 ký tự), chạy test,
-   xem bài nào bị loại.
+3. Thêm 1 rule msgspec mới (vd: `title` tối thiểu 10 ký tự — gợi ý: dùng
+   `msgspec.Meta(min_length=...)`), chạy test, xem bài nào bị loại.

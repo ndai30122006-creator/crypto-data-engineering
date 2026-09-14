@@ -11,7 +11,7 @@ RSS (4 nguồn) ── */5 min ──▶ raw_news ──▶ cleaned_news ──�
   `sanitize_feed_xml()` fix CoinDesk `<content:encoded/>` rỗng
 - `dagster_project/news/cleaner.py` — clean HTML, extract symbols, sentiment
   heuristic, dedupe theo URL
-- `dagster_project/news/schemas.py` — Pydantic `RawArticle` / `CleanArticle`
+- `dagster_project/news/schemas.py` — msgspec Struct `RawArticle` / `CleanArticle`
 - `dagster_project/assets/news_assets.py` — 3 assets nối nhau
 - `dagster_project/definitions.py` — `news_job` + schedule `*/5 * * * *`
 - `database/schema.sql` — bảng `crypto_news` (url UNIQUE)

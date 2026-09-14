@@ -68,7 +68,7 @@ File mới: `dagster_project/market/fetcher.py`
 - Kiến thức: HTTP status (200/429/500), retry/backoff, timeout
 - Xong khi: chạy thử local in ra 50 coins
 
-## Step 3 — schemas.py (Pydantic)
+## Step 3 — schemas.py (msgspec Struct, trước đây Pydantic)
 
 File mới: `dagster_project/market/schemas.py`
 
@@ -97,14 +97,14 @@ File mới: `dagster_project/market/validator.py`
 - Hàm `validate(records) -> (valid, errors)`; errors là list dict
   `{pipeline: "market", payload: {...}, error: "price <= 0"}`
 - KHÔNG drop lặng lẽ — errors sẽ ghi vào `data_quality_errors` ở asset load
-- Kiến thức: 3 tầng quality (Pydantic → rule → DB), bad-record pattern
+- Kiến thức: 3 tầng quality (msgspec → rule → DB), bad-record pattern
 - Xong khi: unit test với 1 record tốt + 3 record lỗi các loại
 
 ## Step 5 — assets + job + schedule
 
 File mới: `dagster_project/assets/market_assets.py`
 
-- `fetch_market` → gọi fetcher, validate Pydantic, return list JSON
+- `fetch_market` → gọi fetcher, validate msgspec, return list JSON
 - `validate_market(fetch_market)` → tách valid/errors
 - `loaded_snapshot(validate_market, postgres)` → INSERT snapshot +
   INSERT errors vào `data_quality_errors`, return số rows

@@ -109,13 +109,13 @@ password.
 
 ## Bước 4 — fetch_news (raw): lấy thô + validate
 
-### Tools: httpx, feedparser, Pydantic
+### Tools: httpx, feedparser, msgspec
 
 - **httpx**: gọi HTTP hiện đại, hỗ trợ async (tải song song).
 - **feedparser**: parse mọi biến thể RSS/Atom thành 1 format dict chung.
-- **Pydantic** (`news/schemas.py`): khai báo `RawArticle` — bài nào thiếu
-  `title`/`url` thì `ValidationError` → bỏ qua + log warning, không để
-  dữ liệu rác lọt xuống DB.
+- **msgspec** (`news/schemas.py`): khai báo Struct `RawArticle` — bài nào thiếu
+  `title`/`url` thì `ValidationError` (bắt ở `msgspec.convert`) → bỏ qua
+  + log warning, không để dữ liệu rác lọt xuống DB.
 
 ### Bài tập
 

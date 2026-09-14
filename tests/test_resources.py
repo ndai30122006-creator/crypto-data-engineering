@@ -110,14 +110,14 @@ def test_loaded_news_with_mock():
 
 
 def test_fetch_market_with_mock_api():
-    """2 tầng validate: Pydantic (kiểu dữ liệu) rồi rules (business).
+    """2 tầng validate: msgspec (kiểu dữ liệu) rồi rules (business).
 
-    price=0 qua được Pydantic (vẫn là số) nhưng rớt ở validate_market.
+    price=0 qua được msgspec (vẫn là số) nhưng rớt ở validate_market.
     """
     from dagster_project.assets.market_assets import validate_market
 
     fetched = fetch_market(make_context(), MockCoinGecko())
-    assert len(fetched) == 2  # Pydantic chỉ loại sai kiểu, không loại sai business
+    assert len(fetched) == 2  # msgspec chỉ loại sai kiểu, không loại sai business
 
     split = validate_market(make_context(), fetched)
     assert len(split["valid"]) == 1

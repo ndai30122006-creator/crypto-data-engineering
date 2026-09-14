@@ -65,8 +65,8 @@ của mình (`price`), API đổi thì sửa 1 chỗ.
 Đây là cùng pattern với Phase 1 (`parse_entry` chuẩn hoá RSS các báo
 khác nhau về 1 format). Nhớ pattern này — mọi nguồn ngoài đều cần nó.
 
-Bài tập: 1 item thiếu `market_cap` (null) → Pydantic xử lý sao?
-(Optional cho qua hay ValidationError? Vì sao để Optional?)
+Bài tập: 1 item thiếu `market_cap` (null) → msgspec xử lý sao?
+(Field `float | None` cho qua hay ValidationError? Vì sao để Optional?)
 
 ---
 

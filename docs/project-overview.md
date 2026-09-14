@@ -36,7 +36,7 @@ correlation query (Phase 5).
   - `normalize_url()` bỏ `?utm_*` của CoinTelegraph để dedupe đúng;
   - `sanitize_feed_xml()` lọc `<content:encoded/>` rỗng của CoinDesk
     (feedparser lấy nó đè mất `description` — đã chứng minh bằng repro).
-- **Validate** (`news/schemas.py`): Pydantic `RawArticle`/`CleanArticle`,
+- **Validate** (`news/schemas.py`): msgspec Struct `RawArticle`/`CleanArticle`,
   thiếu title/url → loại + log.
 - **Clean** (`news/cleaner.py`): strip HTML, extract symbols
   (`SYMBOL_KEYWORDS`), sentiment heuristic (2 word-list),
@@ -53,7 +53,7 @@ correlation query (Phase 5).
   fields đầy đủ). Rate limit ~5-15/phút → job giờ là dư dả.
 - **Fetch** (`resources/coingecko.py` → `CoinGeckoResource`): httpx + retry 3 lần backoff (1s/2s/4s).
 - **Mapping** (`market/schemas.py:from_coingecko`): lớp cách ly tên field
-  (`current_price`→`price`...). Pydantic `RawMarket`, giá null → loại.
+  (`current_price`→`price`...). msgspec Struct `RawMarket`, giá null → loại.
 - **Validate** (`market/validator.py`): price>0, market_cap>0, symbol
   non-empty → tách `(valid, errors)`, errors sẵn format INSERT.
 - **Assets** (`assets/market_assets.py`): cùng khuôn 3 bước Phase 1.
@@ -75,7 +75,7 @@ correlation query (Phase 5).
 | Dagster | Orchestration batch | Asset= dữ liệu, Job= gói chạy, Schedule= đồng hồ, Resource= kết nối chung |
 | PostgreSQL 16 | OLTP storage + phân tích nhẹ | KHÔNG phải OLAP (OLAP = ClickHouse/BigQuery) |
 | httpx/feedparser | Tải + parse RSS | Async tải song song |
-| Pydantic | Validate tầng 1 | Rác bị loại trước khi vào DB |
+| msgspec | Validate tầng 1 | Rác bị loại trước khi vào DB |
 | psycopg2 | Driver Postgres | `with conn` tự commit/rollback |
 | Docker Compose | 4 services + volumes | postgres + dagster-code (gRPC 4000) + webserver + daemon |
 | pytest | 15 unit tests | Mock để offline được |

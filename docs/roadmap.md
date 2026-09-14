@@ -41,7 +41,7 @@ RSS (4 nguồn) ── */5 min ──▶ raw_news ──▶ cleaned_news ──�
 - `resources/rss.py` (`RSSFeedResource.fetch_raw`) — tải đồng thời 4 feeds (httpx + feedparser). Config ở `config/config.yaml`, fallback `DEFAULT_FEEDS`.
 - `news/parser.py` — chuẩn hoá entry: `normalize_url()` bỏ query tracking để dedupe, `sanitize_feed_xml()` lọc `<content:encoded/>` rỗng của CoinDesk (feedparser lấy nó đè mất `description`).
 - `news/cleaner.py` — clean HTML, extract symbols, sentiment heuristic, dedupe theo URL.
-- `news/schemas.py` — Pydantic `RawArticle` / `CleanArticle`.
+- `news/schemas.py` — msgspec Struct `RawArticle` / `CleanArticle`.
 - `assets/news_assets.py` — 3 assets nối nhau, log + metadata đầy đủ.
 - `definitions.py` — `news_job` + schedule `*/5 * * * *`.
 - `database/schema.sql` — bảng `crypto_news` (url UNIQUE).
@@ -61,7 +61,7 @@ CoinGecko API ── 0 * * * * ──▶ fetch_market ──▶ validate_market 
 ```
 
 - `resources/coingecko.py` (`CoinGeckoResource.fetch_markets`) — top 50 coin, retry/backoff khi 429/5xx/timeout, log warning mỗi lần retry.
-- `market/schemas.py` — Pydantic `RawMarket` + `from_coingecko(item)` cách ly mapping field (`current_price` → `price`...).
+- `market/schemas.py` — msgspec Struct `RawMarket` + `from_coingecko(item)` cách ly mapping field (`current_price` → `price`...).
 - `market/validator.py` — rules `price > 0`, `market_cap > 0`, `symbol` non-empty; `validate()` tách `(valid, errors)`, KHÔNG drop lặng lẽ.
 - `assets/market_assets.py` — `fetch_market` → `validate_market` → `loaded_snapshot` (ghi snapshot + quarantine bad records vào `data_quality_errors`).
 - `definitions.py` — `market_job` + schedule `0 * * * *`.
