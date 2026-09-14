@@ -1,4 +1,6 @@
-# Phase 3 — Binance WebSocket → Kafka (realtime)
+# Phase 3 — Binance WebSocket → Kafka (realtime) ✅ DONE, live
+> Trạng thái: đã triển khai xong (`ingestion/`, service `kafka` + `binance-consumer`).
+> File này giữ lại thiết kế gốc để đọc hiểu quá trình.
 
 ## Mục tiêu
 

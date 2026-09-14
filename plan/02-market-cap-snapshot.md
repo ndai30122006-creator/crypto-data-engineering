@@ -1,4 +1,6 @@
-# Phase 2 — Market-cap snapshot job (mỗi 1 giờ) — CHI TIẾT TỪNG STEP
+# Phase 2 — Market-cap snapshot job (mỗi 1 giờ) ✅ DONE, live
+> Trạng thái: đã triển khai xong (`resources/coingecko.py`, `assets/market_assets.py`).
+> File này giữ lại các step gốc để đọc hiểu quá trình.
 
 ## Mục tiêu
 
