@@ -150,6 +150,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+    # Cho flush(15s) kịp chạy trước SIGKILL khi docker stop.
+    stop_grace_period: 30s
     restart: unless-stopped
 
   pathway:

@@ -106,3 +106,20 @@ def test_coingecko_gives_up_after_retries():
         pytest.raises(RuntimeError, match="after 2 attempts"),
     ):
         res.fetch_markets()
+
+
+def test_coingecko_retries_transport_errors():
+    """ReadError (không phải Timeout/Connect) trước đây văng thẳng ra ngoài."""
+    res = CoinGeckoResource(retries=2)
+    good = {"symbol": "btc", "name": "Bitcoin", "current_price": 1.0}
+    with (
+        patch(
+            "dagster_project.resources.coingecko.httpx.get",
+            side_effect=[
+                httpx.ReadError("reset", request=MagicMock()),
+                _resp(200, json=[good]),
+            ],
+        ),
+        patch("dagster_project.resources.coingecko.time.sleep"),
+    ):
+        assert res.fetch_markets() == [good]

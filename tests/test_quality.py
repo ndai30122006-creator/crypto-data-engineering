@@ -66,8 +66,12 @@ def test_schema_news_and_market():
 
 
 def test_summarize_counts():
+    from dagster_project.quality.asset_checks import _combined
     from dagster_project.quality.checks import CheckResult
 
     out = summarize("news", {"a": CheckResult(True, "ok", {"n": 1}), "b": CheckResult(False, "x", {})})
     assert out["pipeline"] == "news" and out["passed"] == 1 and out["failed"] == 1
     assert out["a_n"] == 1
+    combined = _combined("news", {"a": CheckResult(True, "ok", {}), "b": CheckResult(False, "x", {})})
+    assert combined.passed is False
+    assert "ok | x" in combined.description

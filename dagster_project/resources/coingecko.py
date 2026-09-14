@@ -31,7 +31,8 @@ class CoinGeckoResource(ConfigurableResource):
         for attempt in range(self.retries):
             try:
                 resp = httpx.get(self.base_url, params=params, timeout=self.timeout)
-            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            except httpx.TransportError as exc:
+                # Timeout/mất mạng/reset kết nối: luôn retry được.
                 last_error = exc
             else:
                 if resp.status_code in RETRYABLE_STATUS:

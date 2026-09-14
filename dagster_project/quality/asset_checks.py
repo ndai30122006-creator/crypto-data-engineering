@@ -28,8 +28,19 @@ def _to_result(result, severity=AssetCheckSeverity.ERROR) -> AssetCheckResult:
     return AssetCheckResult(
         passed=result.passed,
         description=result.message,
-        metadata={k: v for k, v in result.metrics.items()},
+        metadata=dict(result.metrics),
         severity=severity,
+    )
+
+
+def _combined(pipeline: str, parts: dict[str, object]) -> AssetCheckResult:
+    """Gom nhiều CheckResult thành 1 check (khỏi lặp khối combine)."""
+    passed = all(r.passed for r in parts.values())
+    return AssetCheckResult(
+        passed=passed,
+        description=" | ".join(r.message for r in parts.values()),
+        metadata=summarize(pipeline, parts),
+        severity=AssetCheckSeverity.ERROR,
     )
 
 
@@ -53,39 +64,37 @@ def news_no_nulls(cleaned_news: list[dict]) -> AssetCheckResult:
 
 @asset_check(asset=cleaned_news, description="14+15. Đủ tin + đúng schema CleanArticle")
 def news_count_and_schema(cleaned_news: list[dict]) -> AssetCheckResult:
-    count = check_row_count(len(cleaned_news), min_count=1, max_count=1000)
-    schema = check_schema(cleaned_news, CleanArticle)
-    passed = count.passed and schema.passed
-    summary = summarize("news", {"count": count, "schema": schema})
-    return AssetCheckResult(
-        passed=passed,
-        description=f"{count.message} | {schema.message}",
-        metadata=summary,
-        severity=AssetCheckSeverity.ERROR,
+    return _combined(
+        "news",
+        {
+            "count": check_row_count(len(cleaned_news), min_count=1, max_count=1000),
+            "schema": check_schema(cleaned_news, CleanArticle),
+        },
     )
 
 
 @asset_check(asset=fetch_market, description="14+15. Đủ coin + đúng schema RawMarket")
 def market_count_and_schema(fetch_market: list[dict]) -> AssetCheckResult:
-    count = check_row_count(len(fetch_market), min_count=10, max_count=100)
-    schema = check_schema(fetch_market, RawMarket)
-    nulls = check_nulls(fetch_market, ["symbol", "price"])
-    passed = count.passed and schema.passed and nulls.passed
-    summary = summarize("market", {"count": count, "schema": schema, "nulls": nulls})
-    return AssetCheckResult(
-        passed=passed,
-        description=f"{count.message} | {schema.message} | {nulls.message}",
-        severity=AssetCheckSeverity.ERROR,
-        metadata=summary,
+    # max 500 để dư chỗ nếu tăng per_page (hiện 50), min 10 bắt API rỗng/lỗi.
+    return _combined(
+        "market",
+        {
+            "count": check_row_count(len(fetch_market), min_count=10, max_count=500),
+            "schema": check_schema(fetch_market, RawMarket),
+            "nulls": check_nulls(fetch_market, ["symbol", "price"]),
+        },
     )
 
 
 @asset_check(asset=fetch_market, description="16. Metrics snapshot cho UI/log")
 def market_metrics(fetch_market: list[dict]) -> AssetCheckResult:
-    prices = [c["price"] for c in fetch_market if isinstance(c.get("price"), (int, float))]
-    metadata = {
-        "coins": len(fetch_market),
-        "avg_price": round(sum(prices) / len(prices), 2) if prices else 0,
-        "max_price": max(prices) if prices else 0,
-    }
-    return AssetCheckResult(passed=True, description="metrics only", metadata=metadata)
+    priced = sum(1 for c in fetch_market if isinstance(c.get("price"), (int, float)))
+    return AssetCheckResult(
+        passed=True,
+        description="metrics only",
+        metadata={
+            "coins": len(fetch_market),
+            "priced": priced,
+            "missing_price": len(fetch_market) - priced,
+        },
+    )

@@ -102,6 +102,27 @@ def test_on_raw_message_skips_garbage(tmp_path):
     assert producer.send.call_count == 0
 
 
+def test_handle_signal_closes_ws_and_flags_shutdown():
+    ws = MagicMock()
+    consumer._current_ws = ws
+    consumer._shutdown.clear()
+    consumer._handle_signal(15, None)
+    assert consumer._shutdown.is_set()
+    ws.close.assert_called_once_with()
+    assert consumer._current_ws is None
+    consumer._shutdown.clear()
+
+
+def test_load_config_bad_flush_every_falls_back():
+    import os
+    from unittest.mock import patch
+
+    with patch.dict(os.environ, {"FLUSH_EVERY": "abc"}):
+        assert consumer.load_config()["flush_every"] == 500
+    with patch.dict(os.environ, {"FLUSH_EVERY": "-3"}):
+        assert consumer.load_config()["flush_every"] == 500
+
+
 def test_on_raw_message_flushes_on_cadence(tmp_path):
     consumer._published = 0
     consumer._flushed_at = 0

@@ -37,6 +37,7 @@ logging.basicConfig(
 log = logging.getLogger("binance-consumer")
 
 _shutdown = threading.Event()
+_current_ws: websocket.WebSocketApp | None = None
 _last_beat = 0.0
 _published = 0
 _flushed_at = 0
@@ -74,16 +75,35 @@ def load_config() -> dict:
         "heartbeat_file": os.getenv(
             "HEARTBEAT_FILE", "/tmp/binance-consumer.heartbeat"
         ),
-        "flush_every": int(os.getenv("FLUSH_EVERY", "500")),
+        "flush_every": _positive_int(os.getenv("FLUSH_EVERY"), 500),
     }
 
 
+def _positive_int(raw: str | None, default: int) -> int:
+    """Parse env số nguyên dương, sai format → default (không crash service)."""
+    try:
+        value = int(raw) if raw is not None else default
+        return value if value > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
 def _handle_signal(signum, _frame) -> None:
+    global _current_ws
     log.info("received signal %s, shutting down", signum)
     _shutdown.set()
+    # Đánh thức run_forever đang block: không có dòng này, docker stop
+    # phải chờ hết ping timeout rồi ăn SIGKILL → flush không kịp chạy.
+    ws, _current_ws = _current_ws, None
+    if ws is not None:
+        try:
+            ws.close()
+        except Exception as exc:  # noqa: BLE001 - đang shutdown, cứ thoát
+            log.warning("ws close on shutdown failed: %s", exc)
 
 
 def run_forever() -> None:
+    global _current_ws
     cfg = load_config()
     url = combined_stream_url(cfg["symbols"])
     log.info(
@@ -111,9 +131,17 @@ def run_forever() -> None:
                 )
                 if _shutdown.is_set():
                     break
+                _current_ws = ws
+                connected_at = time.time()
                 ws.run_forever(ping_interval=60, ping_timeout=10)
+                # Kết nối sống lâu rồi mới rớt → reset backoff về 1s
+                # (lỗi chớp nhoáng không đáng bị chờ 60s).
+                if time.time() - connected_at > 60:
+                    backoff = 1
             except Exception as exc:  # noqa: BLE001 - vòng lặp service không được chết
                 log.warning("consumer error: %s", exc)
+            finally:
+                _current_ws = None
             if _shutdown.is_set():
                 break
             # Đóng WS trước khi reconnect để không rò rỉ kết nối cũ.
