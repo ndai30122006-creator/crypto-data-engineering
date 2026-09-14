@@ -43,12 +43,19 @@ FROM crypto_market_snapshot
 WHERE collected_at = (SELECT max(collected_at) FROM crypto_market_snapshot)
 ORDER BY volume_24h DESC LIMIT 10;
 
--- 8. News ↔ Market correlation (cần bảng market_1m ở Phase 4)
--- SELECT n.title, n.published_at, m.symbol, m.window_start,
---        m.price_change_1m AS price_change
--- FROM crypto_news n
--- JOIN market_1m m
---   ON m.window_start BETWEEN n.published_at - INTERVAL '10 minutes'
---                         AND n.published_at + INTERVAL '10 minutes'
--- WHERE ABS(m.price_change_1m) > 1
--- ORDER BY m.window_start DESC;
+-- 8. News ↔ Market correlation: tin trong ±10 phút quanh nến biến động mạnh
+-- (price_change tự tính bằng LAG vì sink để price_change_1m NULL cho stateless)
+WITH moves AS (
+    SELECT symbol, window_start, close,
+           (close - LAG(close) OVER (PARTITION BY symbol ORDER BY window_start))
+           / NULLIF(LAG(close) OVER (PARTITION BY symbol ORDER BY window_start), 0) * 100
+           AS price_change_1m
+    FROM market_1m
+)
+SELECT n.title, n.published_at, m.symbol, m.window_start, m.price_change_1m
+FROM crypto_news n
+JOIN moves m
+  ON m.window_start BETWEEN n.published_at - INTERVAL '10 minutes'
+                        AND n.published_at + INTERVAL '10 minutes'
+WHERE ABS(m.price_change_1m) > 1
+ORDER BY m.window_start DESC;

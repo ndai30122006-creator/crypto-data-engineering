@@ -10,8 +10,8 @@ Tổng hợp từ `plan/` (01–06 + README), cập nhật theo code thực tế
 | 1 | News pipeline (RSS → Dagster → Postgres) | ✅ DONE, live | §1 |
 | 2 | Market-cap snapshot job (mỗi 1 giờ) | ✅ DONE, live | §2 |
 | 3 | Binance WebSocket → Kafka (realtime) | ✅ DONE, live | §3 |
-| 4 | Kafka → Pathway → OHLCV 1m | ⬜ chưa làm | §4 |
-| 5 | Tích hợp: correlation, data quality, milestones | ⬜ chưa làm (query 8 đã có khung) | §5 |
+| 4 | Kafka → Pathway → OHLCV 1m | ✅ DONE, live (145 nến, đủ 5 symbols) | §4 |
+| 5 | Tích hợp: correlation query, data quality, milestones | ✅ query live (0 match — max 0.13% < ngưỡng 1%) | §5 |
 | 6 | Resource practice (theo blog Dagster Resources) | ✅ P1–P4 DONE, P5 check tay trên UI | §6 |
 
 Hạ tầng hiện tại (đã vượt plan gốc):
@@ -94,12 +94,18 @@ Binance WebSocket ──▶ binance-consumer ──▶ Kafka (topic crypto.trade
 - Tests: unit offline (`test_ingestion/reliability`, mock httpx) + integration (`test_integration.py`, chạy với `INTEGRATION=1` khi stack lên: Kafka roundtrip, pipeline → Kafka thật, Postgres roundtrip).
 - Còn lại: consumer chết 10 phút → restart đọc tiếp (offset commit) — tự kiểm chứng khi cần.
 
-## 4. Phase 4 — Kafka → Pathway → OHLCV 1m ⬜
+## 4. Phase 4 — Kafka → Pathway → OHLCV 1m ✅
 
 ```
 Kafka crypto.trades ──▶ Pathway ──▶ market_1m (OHLCV)
-                                ──▶ signals (VOLUME_SPIKE, PRICE_SPIKE)
 ```
+
+- `streaming/windows.py` — spec bucket + aggregate thuần Python (test offline, đối chiếu engine).
+- `streaming/pathway_pipeline.py` — engine Pathway 0.32.1 (API đã verify trong image: `pw.io.kafka.read` + `windowby(tumbling 60s)` + `reduce` + `subscribe`): `TradeSchema` parse JSON, bucket epoch-seconds, OHLCV theo symbol.
+- `streaming/postgres_sink.py` — upsert `(symbol, window_start)` idempotent (replay/restart an toàn). `price_change_1m` để NULL — query tự tính bằng `LAG()` (stateless).
+- Service `pathway` (`Dockerfile.pathway`, uv, healthcheck process qua `/proc`).
+- Verify live: 145 nến, đủ 5 symbols, OHLC hợp lệ (BTC 77522–77549).
+- Lưu ý: `earliest/latest` theo processing-time — đúng vì trades cùng symbol đi 1 partition nên giữ thứ tự; `pathway` marker Linux-only trong pyproject (không wheel Windows).
 
 - `market_1m`: `(symbol, window_start)` PK + open/high/low/close/volume/trade_count/`price_change_1m`.
 - `signals`: `signal_type` + `window_start` + `details` JSONB.
@@ -108,9 +114,9 @@ Kafka crypto.trades ──▶ Pathway ──▶ market_1m (OHLCV)
 - Quality OHLCV vi phạm → `data_quality_errors`.
 - Verify sau 2–3 phút: `SELECT * FROM market_1m ORDER BY window_start DESC LIMIT 5;`
 
-## 5. Phase 5 — Tích hợp ⬜
+## 5. Phase 5 — Tích hợp ✅ query live
 
-1. **News ↔ Market correlation** (±10 phút quanh biến động mạnh) — khung query đã có trong `database/queries.sql` (query 8, chờ bảng `market_1m`).
+1. **News ↔ Market correlation** (±10 phút quanh nến biến động > 1%): query 8 trong `database/queries.sql` đã chạy live — 0 match vì max biến động 1m hiện tại 0.13% < ngưỡng (đúng hành vi, không phải bug). `price_change` tính bằng `LAG(close)` vì sink để NULL cho stateless.
 2. **Data quality tổng**: Binance (`price/quantity > 0`, NOT NULL) · News (url/title NOT NULL, url UNIQUE) · OHLCV (high ≥ low/open/close...) → `data_quality_errors`.
 3. **Milestones**: L1 Batch ✅ (+ Phase 2 ✅) · L2 Streaming ⬜ · L3 Stream Processing ⬜ · L4 Integration ⬜.
 4. **15 câu hỏi tự kiểm tra** (Kafka 5 / Dagster 4 / Pathway 3 / Postgres 3) — xem `plan/05-integration.md`.

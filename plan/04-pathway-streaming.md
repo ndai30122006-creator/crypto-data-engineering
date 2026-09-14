@@ -1,4 +1,6 @@
-# Phase 4 — Kafka → Pathway → OHLCV 1m (stream processing)
+# Phase 4 — Kafka → Pathway → OHLCV 1m (stream processing) ✅ DONE, live
+> Đã triển khai: `streaming/` (windows pure + engine Pathway 0.32.1 + sink upsert),
+> service `pathway`, bảng `market_1m` live. Chi tiết xem `docs/roadmap.md` §4.
 
 ## Mục tiêu
 

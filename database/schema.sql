@@ -39,3 +39,14 @@ CREATE TABLE IF NOT EXISTS data_quality_errors (
     error TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS market_1m (
+    symbol VARCHAR(20),
+    window_start TIMESTAMPTZ,
+    open NUMERIC(20,8), high NUMERIC(20,8),
+    low NUMERIC(20,8),  close NUMERIC(20,8),
+    volume NUMERIC(30,12),
+    trade_count INTEGER,
+    price_change_1m NUMERIC(10,4),
+    PRIMARY KEY (symbol, window_start)
+);

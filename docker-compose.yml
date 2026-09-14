@@ -152,6 +152,36 @@ services:
       start_period: 90s
     restart: unless-stopped
 
+  pathway:
+    build:
+      context: .
+      dockerfile: Dockerfile.pathway
+    container_name: crypto-pathway
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: crypto.trades
+      KAFKA_GROUP_ID: pathway-ohlcv-1m
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-crypto_db}
+      PGUSER: ${POSTGRES_USER:-admin}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-secret}
+    volumes:
+      - ./streaming:/opt/streaming/streaming
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Pathway không mở port: kiểm tra process engine thật qua /proc.
+      test: ["CMD-SHELL", "python -c \"import os,sys; sys.exit(0 if any('pathway_pipeline' in open('/proc/'+p+'/cmdline','rb').read().decode(errors='ignore') for p in os.listdir('/proc') if p.isdigit()) else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    restart: unless-stopped
+
 volumes:
   pgdata:
   dagster_home:

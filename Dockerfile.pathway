@@ -1,0 +1,19 @@
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/streaming \
+    UV_LINK_MODE=copy \
+    PATH="/opt/streaming/.venv/bin:$PATH"
+
+WORKDIR /opt/streaming
+
+COPY pyproject.toml uv.lock .python-version README.md ./
+# Chỉ cần deps (pathway/psycopg2); streaming/ chạy qua PYTHONPATH.
+RUN uv sync --frozen --no-dev --no-install-project
+
+COPY streaming ./streaming
+
+CMD ["python", "-m", "streaming.pathway_pipeline"]

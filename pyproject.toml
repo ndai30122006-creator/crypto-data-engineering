@@ -10,6 +10,9 @@ dependencies = [
     "feedparser",
     "httpx",
     "kafka-python>=3.0.11",
+    # Pathway chỉ có wheel Linux/macOS (không có win_amd64):
+    # local Windows sync bỏ qua, image Docker (linux) cài đủ.
+    "pathway; sys_platform != 'win32'",
     "psycopg2-binary",
     "pydantic>=2",
     "python-dateutil",
