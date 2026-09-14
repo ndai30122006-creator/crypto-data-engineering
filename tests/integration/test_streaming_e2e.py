@@ -109,20 +109,28 @@ def test_streaming_e2e_fake_to_postgres():
             try:
                 with conn, conn.cursor() as cur:
                     cur.execute(
-                        "SELECT open, high, low, close, volume, trade_count "
+                        "SELECT symbol, window_start, open, high, low, close, "
+                        "volume, trade_count "
                         "FROM market_1m WHERE symbol = %s;",
                         (SYMBOL,),
                     )
                     row = cur.fetchone()
             finally:
                 conn.close()
-            if row and row[5] >= len(FAKE_TRADES):
+            if row and row[7] >= len(FAKE_TRADES):
                 break
             time.sleep(2)
 
         assert row is not None, "engine không ghi nến E2ETEST trong 60s"
-        o, h, low, c, vol, cnt = (float(row[0]), float(row[1]), float(row[2]),
-                                  float(row[3]), float(row[4]), row[5])
+        from datetime import datetime, timezone
+
+        sym, w_start, o, h, low, c, vol, cnt = (
+            row[0], row[1], float(row[2]), float(row[3]),
+            float(row[4]), float(row[5]), float(row[6]), row[7],
+        )
+        expected_bucket = datetime.fromtimestamp(T0 // 1000 // 60 * 60, tz=timezone.utc)
+        assert sym == SYMBOL
+        assert w_start == expected_bucket
         # OHLC phải chính xác; volume/count dùng >= vì producer retry
         # (kafka-python không có idempotence) có thể gửi trùng — upsert
         # giữ OHLC đúng, chỉ count/volume phình.
