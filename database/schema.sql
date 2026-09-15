@@ -50,3 +50,13 @@ CREATE TABLE IF NOT EXISTS market_1m (
     price_change_1m NUMERIC(10,4),
     PRIMARY KEY (symbol, window_start)
 );
+
+CREATE TABLE IF NOT EXISTS signals (
+    id BIGSERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    signal_type VARCHAR(30) NOT NULL,
+    window_start TIMESTAMPTZ NOT NULL,
+    details JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (symbol, signal_type, window_start)
+);

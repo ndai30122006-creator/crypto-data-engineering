@@ -19,6 +19,7 @@ COPY pyproject.toml uv.lock .python-version README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY dagster_project ./dagster_project
+COPY streaming ./streaming
 COPY workspace.yaml ./workspace.yaml
 COPY config ./config
 

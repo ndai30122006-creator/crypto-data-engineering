@@ -32,6 +32,7 @@ services:
       DAGSTER_ENVIRONMENT: local
     volumes:
       - ./dagster_project:/opt/dagster/dagster_project
+      - ./streaming:/opt/dagster/streaming
       - ./config:/opt/dagster/config:ro
       - dagster_home:/opt/dagster/dagster_home
     depends_on:

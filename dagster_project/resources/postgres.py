@@ -90,6 +90,15 @@ class PostgresResource(ConfigurableResource):
                 error TEXT,
                 created_at TIMESTAMPTZ DEFAULT NOW()
             )""",
+            "signals": """(
+                id BIGSERIAL PRIMARY KEY,
+                symbol VARCHAR(20) NOT NULL,
+                signal_type VARCHAR(30) NOT NULL,
+                window_start TIMESTAMPTZ NOT NULL,
+                details JSONB,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (symbol, signal_type, window_start)
+            )""",
         }
         with conn, conn.cursor() as cur:
             for base, ddl in ddls.items():
@@ -185,3 +194,48 @@ class PostgresResource(ConfigurableResource):
                         """,
                         (err["pipeline"], payload, err["error"]),
                     )
+
+    def fetch_candles(self, minutes: int = 70) -> list[dict]:
+        """Nến 1m gần nhất cho detector (market_1m là bảng global)."""
+        conn = self.get_conn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT symbol, window_start, volume FROM market_1m
+                    WHERE window_start > NOW() - (%s || ' minutes')::INTERVAL
+                    ORDER BY symbol, window_start;
+                    """,
+                    (minutes,),
+                )
+                return [
+                    {"symbol": s, "window_start": w, "volume": float(v)}
+                    for s, w, v in cur.fetchall()
+                ]
+        finally:
+            conn.close()
+
+    def insert_signals(self, signals: list[dict]) -> int:
+        """INSERT signals, bỏ qua cái đã có. Trả về số dòng mới."""
+        with self._session():
+            pass  # ensure tables kể cả khi không có signal mới
+        if not signals:
+            return 0
+        inserted = 0
+        with self._timed(), self._session() as cur:
+            for sig in signals:
+                details = sig.get("details", {})
+                if not isinstance(details, str):
+                    details = orjson.dumps(details, default=str).decode("utf-8")
+                cur.execute(
+                    f"""
+                    INSERT INTO {self.table("signals")}
+                        (symbol, signal_type, window_start, details)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (symbol, signal_type, window_start) DO NOTHING
+                    """,
+                    (sig["symbol"], sig["signal_type"], sig["window_start"], details),
+                )
+                inserted += cur.rowcount
+        _counters["rows_inserted_total"] += inserted
+        return inserted

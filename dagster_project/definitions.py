@@ -16,6 +16,7 @@ from dagster_project.assets.news_assets import (
     loaded_news,
     raw_news,
 )
+from dagster_project.assets.signals_assets import detected_signals
 from dagster_project.quality.asset_checks import (
     market_count_and_schema,
     market_metrics,
@@ -42,7 +43,7 @@ news_schedule = ScheduleDefinition(
 
 market_job = define_asset_job(
     name="market_job",
-    selection=["fetch_market", "validate_market", "loaded_snapshot"],
+    selection=["fetch_market", "validate_market", "loaded_snapshot", "detected_signals"],
 )
 
 market_schedule = ScheduleDefinition(
@@ -58,6 +59,7 @@ defs = Definitions(
         fetch_market,
         validate_market,
         loaded_snapshot,
+        detected_signals,
     ],
     schedules=[news_schedule, market_schedule],
     asset_checks=[
