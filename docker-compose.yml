@@ -136,6 +136,7 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: crypto.trades
+      KAFKA_DLQ_TOPIC: crypto.dlq
       SYMBOLS: BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT
       HEARTBEAT_FILE: /tmp/binance-consumer.heartbeat
     volumes:

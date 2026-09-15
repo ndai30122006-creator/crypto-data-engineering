@@ -50,5 +50,5 @@ Chạy định kỳ bằng Task Scheduler/cron gọi `alert.py` (exit code) — 
 
 - Kafka chết: consumer không crash — lỗi flush propagate lên vòng lặp, log + reconnect vô hạn (`test_kafka_down_flush_error_propagates`).
 - WS rớt: đóng kết nối cũ, backoff reconnect, resume (`test_ws_disconnect_reconnects`).
-- Event invalid (`price <= 0`...): reject + log warning + counter, chưa vào Kafka (sau này nâng DLQ topic).
+- Event invalid (`price <= 0`...): reject khỏi topic chính + log warning + counter + gửi topic `crypto.dlq` (tắt bằng `KAFKA_DLQ_TOPIC=""`).
 - Postgres chết: sink retry 3 lần backoff → ghi `/tmp/pathway-dlq.jsonl` → raise to (fail visible, data còn trong DLQ). Env `SINK_RETRIES`, `DLQ_FILE`.

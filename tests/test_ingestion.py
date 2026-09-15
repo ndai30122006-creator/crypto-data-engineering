@@ -75,6 +75,7 @@ def test_beat_throttles(tmp_path):
 def _cfg(tmp_path, **over):
     cfg = {
         "topic": "crypto.trades",
+        "dlq_topic": "crypto.dlq",
         "heartbeat_file": str(tmp_path / "heartbeat"),
         "metrics_file": str(tmp_path / "metrics.json"),
         "flush_every": 10_000,
@@ -111,9 +112,23 @@ def test_on_raw_message_counts_invalid(tmp_path):
     cfg = _cfg(tmp_path)
     on_raw_message(producer, cfg, "not-json")
     on_raw_message(producer, cfg, "{}")
-    assert producer.send.call_count == 0
+    assert producer.send.call_count == 2  # chỉ vào DLQ, không vào topic chính
+    topics = [c.args[0] for c in producer.send.call_args_list]
+    assert set(topics) == {"crypto.dlq"}
     assert consumer.snapshot_metrics()["events_invalid_total"] == 2
+    assert consumer.snapshot_metrics()["events_dlq_total"] == 2
     assert consumer.snapshot_metrics()["events_received_total"] == 2
+    _reset_consumer_state()
+
+
+def test_dlq_disabled_by_empty_topic(tmp_path):
+    _reset_consumer_state()
+    producer = MagicMock()
+    cfg = _cfg(tmp_path, dlq_topic="")
+    on_raw_message(producer, cfg, "not-json")
+    assert producer.send.call_count == 0  # tắt DLQ: chỉ log + metric
+    assert consumer.snapshot_metrics()["events_invalid_total"] == 1
+    assert consumer.snapshot_metrics()["events_dlq_total"] == 0
     _reset_consumer_state()
 
 
@@ -212,7 +227,7 @@ def test_ws_disconnect_reconnects():
 
 
 def test_invalid_trade_rejected_with_metric(tmp_path):
-    """Step 4.3 — trade invalid (price<0): reject + metric (sau này nâng DLQ)."""
+    """Step 4.3/5 — trade invalid (price<0): reject khỏi topic chính + vào DLQ."""
     _reset_consumer_state()
     import orjson
 
@@ -220,6 +235,8 @@ def test_invalid_trade_rejected_with_metric(tmp_path):
     cfg = _cfg(tmp_path)
     bad = orjson.dumps({"e": "trade", "s": "BTCUSDT", "p": "-100", "q": "1", "T": 1}).decode()
     on_raw_message(producer, cfg, bad)
-    assert producer.send.call_count == 0
+    assert producer.send.call_count == 1
+    assert producer.send.call_args[0][0] == "crypto.dlq"  # không vào topic chính
     assert consumer.snapshot_metrics()["events_invalid_total"] == 1
+    assert consumer.snapshot_metrics()["events_dlq_total"] == 1
     _reset_consumer_state()

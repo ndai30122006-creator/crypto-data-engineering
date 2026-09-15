@@ -175,7 +175,7 @@ Thứ tự P1 → P2 → P3 → P4 → P5. Chi tiết từng practice xem `plan/
 ## 11. Operations ✅
 
 - Observability LOG→METRIC→HEALTH→ALERT: `scripts/metrics.py` (JSON: runs, kafka lag/rate, binance counters, pathway engine, DB), `scripts/alert.py` (6 rules + exit code), `scripts/status.py` (dashboard) — xem `docs/observability.md`.
-- Failure handling: Kafka chết (retry vô hạn, không crash) · WS rớt (reconnect) · invalid reject+log+metric (hướng DLQ) · Postgres chết (sink retry 3 + DLQ file + raise to).
+- Failure handling: Kafka chết (retry vô hạn, không crash) · WS rớt (reconnect) · invalid reject+log+metric+DLQ topic `crypto.dlq` (tắt bằng `KAFKA_DLQ_TOPIC=""`) · Postgres chết (sink retry 3 + DLQ file + raise to).
 - Migrations: `scripts/migrate.py` + `database/migrations/` (versioned, idempotent). Secrets: env-only (`.env` ignore khỏi git).
 - Libs: msgspec (validate), orjson (JSON), ciso8601 + dateutil-fallback (ngày), jlogger (log JSON services; Dagster giữ `context.log` riêng).
 

@@ -40,6 +40,7 @@ _started_at = time.time()
 _counters = {
     "events_received_total": 0,
     "events_invalid_total": 0,
+    "events_dlq_total": 0,
     "events_published_total": 0,
     "publish_failures_total": 0,
     "reconnect_total": 0,
@@ -96,6 +97,8 @@ def load_config() -> dict:
         ),
         "flush_every": _positive_int(os.getenv("FLUSH_EVERY"), 500),
         "metrics_file": os.getenv("METRICS_FILE", "/tmp/binance-metrics.json"),
+        # Topic chứa event invalid (rỗng = tắt DLQ, chỉ log + metric).
+        "dlq_topic": os.getenv("KAFKA_DLQ_TOPIC", "crypto.dlq"),
     }
 
 
@@ -181,6 +184,20 @@ def run_forever() -> None:
         log.info("shutdown complete")
 
 
+def _to_dlq(producer, cfg: dict, raw: str, reason: str) -> None:
+    """Gửi event invalid vào DLQ topic (rỗng KAFKA_DLQ_TOPIC = tắt)."""
+    dlq_topic = cfg.get("dlq_topic", "crypto.dlq")
+    if not dlq_topic:
+        return
+    try:
+        payload = raw if isinstance(raw, str) else str(raw)
+        producer.send(dlq_topic, key="invalid",
+                      value={"raw": payload[:2000], "reason": reason})
+        _counters["events_dlq_total"] += 1
+    except Exception as exc:  # noqa: BLE001 - DLQ không được làm chết luồng chính
+        log.warning("dlq send failed", exc=exc)
+
+
 def on_raw_message(producer, cfg: dict, raw: str) -> None:
     """Parse 1 raw WS message → publish nếu là trade hợp lệ + đập nhịp tim."""
     global _flushed_at
@@ -190,13 +207,14 @@ def on_raw_message(producer, cfg: dict, raw: str) -> None:
     except (orjson.JSONDecodeError, TypeError):
         log.warning("skip non-JSON message")
         _counters["events_invalid_total"] += 1
+        _to_dlq(producer, cfg, raw, "non-json")
         return
     event = parse_trade(msg)
     if event is None:
-        # Invalid (giá/qty <= 0, thiếu field...): reject + log + metric.
-        # Sau này nâng thành DLQ topic riêng.
+        # Invalid (giá/qty <= 0, thiếu field...): reject + log + metric + DLQ.
         log.warning("skip invalid trade", raw=str(raw)[:200])
         _counters["events_invalid_total"] += 1
+        _to_dlq(producer, cfg, raw, "invalid-trade")
         return
 
     def _failed(exc, _event) -> None:
