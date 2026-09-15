@@ -195,25 +195,40 @@ class PostgresResource(ConfigurableResource):
                         (err["pipeline"], payload, err["error"]),
                     )
 
-    def fetch_candles(self, minutes: int = 70) -> list[dict]:
-        """Nến 1m gần nhất cho detector (market_1m là bảng global)."""
+    def _query_candles(self, columns: str, minutes: int) -> list[tuple]:
+        """SELECT nến 1m (bảng global) — dùng chung cho detector và quality."""
         conn = self.get_conn()
         try:
             with conn, conn.cursor() as cur:
                 cur.execute(
-                    """
-                    SELECT symbol, window_start, volume FROM market_1m
+                    f"""
+                    SELECT {columns} FROM market_1m
                     WHERE window_start > NOW() - (%s || ' minutes')::INTERVAL
                     ORDER BY symbol, window_start;
                     """,
                     (minutes,),
                 )
-                return [
-                    {"symbol": s, "window_start": w, "volume": float(v)}
-                    for s, w, v in cur.fetchall()
-                ]
+                return cur.fetchall()
         finally:
             conn.close()
+
+    def fetch_candles(self, minutes: int = 70) -> list[dict]:
+        """Nến 1m gọn (symbol/window/volume) cho detector."""
+        return [
+            {"symbol": s, "window_start": w, "volume": float(v)}
+            for s, w, v in self._query_candles("symbol, window_start, volume", minutes)
+        ]
+
+    def fetch_ohlcv(self, minutes: int = 70) -> list[dict]:
+        """Nến 1m đầy đủ fields cho quality check."""
+        return [
+            {"symbol": s, "window_start": w, "open": o, "high": h,
+             "low": low, "close": c, "volume": v, "trade_count": n}
+            for s, w, o, h, low, c, v, n in self._query_candles(
+                "symbol, window_start, open, high, low, close, volume, trade_count",
+                minutes,
+            )
+        ]
 
     def insert_signals(self, signals: list[dict]) -> int:
         """INSERT signals, bỏ qua cái đã có. Trả về số dòng mới."""

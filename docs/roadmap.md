@@ -112,7 +112,7 @@ Kafka crypto.trades ──▶ Pathway ──▶ market_1m (OHLCV)
   (đúng data-time mọi thứ tự arrival). Producer kafka-python không có
   idempotence nên test assert OHLC chính xác + volume/count `>=`.
 - Verify live: 145 nến, đủ 5 symbols, OHLC hợp lệ (BTC 77522–77549).
-- Chưa làm (giữ đúng scope): `price_change_5m/15m`, volume-spike detector trong engine, đẩy vi phạm OHLCV vào `data_quality_errors` — xem §12 thay thế bằng batch.
+- Chưa làm (giữ đúng scope): `price_change_5m/15m`, volume-spike detector trong engine.
 - Verify sau 2–3 phút: `SELECT * FROM market_1m ORDER BY window_start DESC LIMIT 5;`
 
 ## 12. Signals batch (VOLUME_SPIKE) ✅
@@ -120,6 +120,12 @@ Kafka crypto.trades ──▶ Pathway ──▶ market_1m (OHLCV)
 - `streaming/signals.py` pure: spike khi volume 5m > 3× baseline giờ (cần 65 nến/symbol).
 - Asset `detected_signals` (theo giờ, trong `market_job`): quét 70 phút → ghi bảng `signals` (UNIQUE symbol/type/window). Verify live: scan 75 nến → 0 signals (thị trường yên, đúng hành vi).
 - Test `tests/test_signals.py` (5 tests: thiếu baseline, phẳng, spike, đa symbol, asset mock).
+
+## 13. OHLCV quality wiring ✅
+
+- `streaming/quality_ohlcv.py` pure: high≥low/open/close, low≤open/close, volume≥0, count int>0 → violations + `to_errors()` (pipeline=`ohlcv`).
+- Asset `quarantine_ohlcv` (theo giờ, trong `market_job`): quét 70 phút → vi phạm vào `data_quality_errors`. Verify live: 115 nến → 0 violations (engine sạch).
+- Test `tests/test_quality_ohlcv.py` (6 tests: sạch, high/low, volume/count, thiếu field, format errors, asset mock).
 
 ## 5. Phase 5 — Tích hợp ✅ query live
 

@@ -16,6 +16,7 @@ from dagster_project.assets.news_assets import (
     loaded_news,
     raw_news,
 )
+from dagster_project.assets.quality_assets import quarantine_ohlcv
 from dagster_project.assets.signals_assets import detected_signals
 from dagster_project.quality.asset_checks import (
     market_count_and_schema,
@@ -43,7 +44,7 @@ news_schedule = ScheduleDefinition(
 
 market_job = define_asset_job(
     name="market_job",
-    selection=["fetch_market", "validate_market", "loaded_snapshot", "detected_signals"],
+    selection=["fetch_market", "validate_market", "loaded_snapshot", "detected_signals", "quarantine_ohlcv"],
 )
 
 market_schedule = ScheduleDefinition(
@@ -60,6 +61,7 @@ defs = Definitions(
         validate_market,
         loaded_snapshot,
         detected_signals,
+        quarantine_ohlcv,
     ],
     schedules=[news_schedule, market_schedule],
     asset_checks=[
