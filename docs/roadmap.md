@@ -95,7 +95,7 @@ Binance WebSocket ──▶ binance-consumer ──▶ Kafka (topic crypto.trade
 - Verify live: `kafka-console-consumer --topic crypto.trades` thấy event chảy (`{"symbol": "ETHUSDT", "price": ..., ...}`).
 - Reliability: RSS retry/backoff (4xx fail nhanh, async sleep); CoinGecko retry theo status (429/5xx + Retry-After + jitter, 4xx fail nhanh); producer errback log + flush theo nhịp (500) + flush/close khi SIGTERM/SIGINT; consumer heartbeat file cho healthcheck.
 - Tests: unit offline (`test_ingestion/reliability`, mock httpx) + integration (`test_integration.py`, chạy với `INTEGRATION=1` khi stack lên: Kafka roundtrip, pipeline → Kafka thật, Postgres roundtrip).
-- Còn lại: consumer chết 10 phút → restart đọc tiếp (offset commit) — tự kiểm chứng khi cần.
+- Còn lại: đã verify kill consumer 11 phút → log-end đứng yên ở 3576950 (đúng là nguồn duy nhất) → start lại healthy, counters chạy lại từ 0, log-end tăng tiếp (resume, không crash).
 
 ## 4. Phase 4 — Kafka → Pathway → OHLCV 1m ✅
 
