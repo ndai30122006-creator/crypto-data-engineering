@@ -70,11 +70,19 @@ def evaluate(metrics: dict, env: dict | None = None) -> list[str]:
     return alerts
 
 
+def _safe(text: str) -> str:
+    """Console Windows (cp1252) không in được dấu tiếng Việt → thay ?."""
+    enc = (sys.stdout.encoding or "utf-8").lower()
+    if "utf" in enc:
+        return text
+    return text.encode(enc, errors="replace").decode(enc)
+
+
 def main() -> int:
     metrics = collect()
     alerts = evaluate(metrics)
     for line in alerts:
-        print(line)
+        print(_safe(line))
     if alerts:
         print(f"{len(alerts)} alert(s)")
         return 1
