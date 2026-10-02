@@ -31,6 +31,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-crypto_db}
       DAGSTER_ENVIRONMENT: ${DAGSTER_ENVIRONMENT:-local}
+      PRICE_SPIKE_THRESHOLD_PCT: ${PRICE_SPIKE_THRESHOLD_PCT:-1.0}
     volumes:
       - ./dagster_project:/opt/dagster/dagster_project
       - ./streaming:/opt/dagster/streaming

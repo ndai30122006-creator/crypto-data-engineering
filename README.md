@@ -28,7 +28,7 @@ RSS → raw_news → cleaned_news → loaded_news → crypto_news
 CoinGecko → fetch_market → validate_market → loaded_snapshot
                                                 → crypto_market_snapshot
                      schema/business rejects → data_quality_errors
-market_1m → detected_signals (VOLUME_SPIKE) → signals
+market_1m → detected_signals (VOLUME_SPIKE, PRICE_SPIKE) → signals_<env>
           → quarantine_ohlcv → data_quality_errors
 
 delivery failures → recovery_dlq volume → replay_dlq (ack/commit + checkpoint)
@@ -38,7 +38,12 @@ Pathway snapshots → pathway_state volume
 Dagster có **8 assets, 6 asset checks, 2 jobs và 2 schedules**, dùng RSS,
 CoinGecko và Postgres resources. News chạy mỗi 5 phút; market, signals và
 OHLCV quality chạy theo giờ. Bảng batch có suffix `_local`/`_staging`,
-production không suffix; `market_1m` và `signals` dùng chung.
+production không suffix; `market_1m` dùng chung, signals cũng có suffix batch.
+
+PRICE_SPIKE mặc định khi close thay đổi ít nhất ±1% so với 5 phút trước;
+cần 6 nến 1m liên tục đã đóng, quét mọi endpoint trong giờ vừa qua.
+Đặt `PRICE_SPIKE_THRESHOLD_PCT` để đổi ngưỡng. Signal unique theo
+symbol/type/window; đây là nhãn phân tích batch, không đặt lệnh giao dịch.
 
 ## Stack và cấu trúc
 
@@ -109,7 +114,7 @@ Postgres, Kafka, DLQ hoặc Pathway state.
   các events đã nhận nhưng delivery thất bại; REST backfill chưa triển khai.
 - Dedupe/state hiện giữ lịch sử, cần theo dõi RAM và dung lượng volume.
   Restart phải giữ state; thay graph/source cần kế hoạch replay riêng.
-- Signals hiện là VOLUME_SPIKE batch. PRICE_SPIKE và price change 5m/15m
-  là các bước mở rộng chưa triển khai.
+- Signals VOLUME_SPIKE/PRICE_SPIKE chạy theo giờ; price change 5m/15m
+  đang được bổ sung qua SQL view trong plan 09.
 - Credentials đi qua environment; `.env` được ignore. Giá trị mặc định
   trong Compose chỉ dành cho môi trường local.

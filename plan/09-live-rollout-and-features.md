@@ -8,7 +8,7 @@ Mỗi hàng có commit riêng; không ghi hoàn thành dựa trên tests bị sk
 |---|---|---|
 | 1. Rollout v2 | Backup DB, migration 001, build images, 7 services healthy, topic/group v2, Linux graph + Kafka→Pathway→Postgres tests, schedules hoạt động; tự tìm Docker CLI trên Windows | Đạt, commit riêng |
 | 2. Recovery | Test restart engine giữ exact OHLCV; trade/candle DLQ qua lỗi thật, replay/checkpoint/version guard và volume còn sau recreate; ghi bằng chứng | Đạt, commit riêng |
-| 3. PRICE_SPIKE | Batch theo giờ, mọi window 5 phút đã đóng trong giờ; >=1% tăng/giảm so với close 5 phút trước, threshold env; yêu cầu 6 nến liên tục, unique signal replay; tests boundaries/gaps/partial/multi-symbol | Chờ |
+| 3. PRICE_SPIKE | Batch theo giờ, mọi window 5 phút đã đóng trong giờ; >=1% tăng/giảm so với close 5 phút trước, threshold env; yêu cầu 6 nến liên tục, unique signal replay; tests boundaries/gaps/partial/multi-symbol | Đạt, commit riêng |
 | 4. Price change 1m/5m/15m | SQL view trên candles: tính % từ close N phút trước, NULL nếu thiếu khoảng đầy đủ hoặc giá không hợp lệ; không đóng băng giá trị khi có late trade; migration và test SQL thật | Chờ |
 | 5. Binance backfill | REST historicalTrades trả raw trade IDs/payloads; checkpoint chỉ sau Kafka ack; detect gap/restart per symbol, bounded pages/rate retries, durable progress và báo unresolved gap | Chờ |
 
@@ -47,3 +47,8 @@ Backup/runtime artifacts nằm trong thư mục ignore; secrets không commit.
   SQL lưu volume 5, resume 0. Recreate engine giữ marker trong DLQ volume;
   duplicate + trade mới sau recreate cho OHLCV `(10,13,10,13,8,4)`.
   Version guard SQL thật đã đạt ở suite rollout. Services được restore healthy.
+- PRICE_SPIKE: 25 unit/asset tests + 1 test DB thật đọc close và insert signal
+  hai lần (lần 2 insert 0) đều đạt. Dagster run
+  `9e3438b9-e70d-42dc-9a4c-126b20b27431` materialize detected_signals thành
+  công trên DB local (55 candles, 0 spikes; không tạo tín hiệu giả).
+  Rollout commit `6b25937`, recovery `c246084`, sửa PATH permissions `0b2e656`.

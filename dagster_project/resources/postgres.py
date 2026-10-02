@@ -213,10 +213,10 @@ class PostgresResource(ConfigurableResource):
             conn.close()
 
     def fetch_candles(self, minutes: int = 70) -> list[dict]:
-        """Nến 1m gọn (symbol/window/volume) cho detector."""
+        """Nến 1m (symbol/window/volume/close) cho hai detectors."""
         return [
-            {"symbol": s, "window_start": w, "volume": float(v)}
-            for s, w, v in self._query_candles("symbol, window_start, volume", minutes)
+            {"symbol": s, "window_start": w, "volume": float(v), "close": c}
+            for s, w, v, c in self._query_candles("symbol, window_start, volume, close", minutes)
         ]
 
     def fetch_ohlcv(self, minutes: int = 70) -> list[dict]:

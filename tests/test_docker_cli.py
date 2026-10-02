@@ -28,5 +28,3 @@ def test_unreadable_path_falls_back_to_desktop(monkeypatch, tmp_path):
 
     monkeypatch.setattr(docker_cli.shutil, "which", denied)
     assert docker_cli.docker_executable() == str(executable)
-
-
