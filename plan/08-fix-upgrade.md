@@ -123,5 +123,8 @@ WS outage backfill, PRICE_SPIKE, price change 5m/15m vẫn chưa triển khai.
 
 Môi trường: Docker executable chưa tìm thấy, WSL chỉ có distro docker-desktop;
 Docker CLI trong distro này báo không hỗ trợ. Do đó chưa ghi “live verified”.
-Giai đoạn tiếp theo là chạy hai CI jobs, Docker config/build và checklist live
-trong runbook; lưu bằng chứng test/health/data trước khi đánh dấu nghiệm thu.
+Ghi chú cập nhật 02/10/2026: phần trên là snapshot trước rollout. Code đã
+commit/push `97d99d8`; rollout local mới có **3 graph tests Linux + 10 E2E
+tests thật passed**, 7 containers healthy, migration 001 và hai schedules
+đã bật. Theo dõi recovery và các features tiếp theo tại
+[plan 09](09-live-rollout-and-features.md). CI GitHub chưa được xác minh tại đây.

@@ -9,6 +9,8 @@ import math
 import subprocess
 import sys
 
+from docker_cli import docker_executable
+
 try:
     from metrics import collect
 except ImportError:  # chạy từ repo root: scripts/ không phải package
@@ -30,7 +32,7 @@ def container_health() -> dict[str, str]:
     """Tên hiển thị → 'healthy'/'starting'/... (lỗi docker → 'unknown')."""
     try:
         proc = subprocess.run(
-            ["docker", "ps", "--format", "{{.Names}}|{{.Status}}"],
+            [docker_executable(), "ps", "--format", "{{.Names}}|{{.Status}}"],
             capture_output=True,
             text=True,
             timeout=15,

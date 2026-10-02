@@ -2,6 +2,7 @@ name: crypto-data-engineering
 
 services:
   postgres:
+    restart: unless-stopped
     image: postgres:16
     container_name: crypto-postgres
     environment:
@@ -47,6 +48,7 @@ services:
     restart: unless-stopped
 
   dagster-webserver:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile.dagster
@@ -72,6 +74,7 @@ services:
       start_period: 30s
 
   dagster-daemon:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile.dagster
@@ -101,6 +104,7 @@ services:
   # Muốn prod-like: 3 broker KRaft + RF=3 (offsets/transactions/topics),
   # min ISR=2, producer acks=all đã sẵn trong consumer.
   kafka:
+    restart: unless-stopped
     image: apache/kafka:3.9.0
     container_name: crypto-kafka
     environment:

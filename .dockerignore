@@ -8,6 +8,7 @@ tests/
 uv-cache/
 .tools/
 .dlq/
+.recovery/
 .pytest_cache/
 .ruff_cache/
 dagster_home/

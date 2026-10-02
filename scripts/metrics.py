@@ -10,13 +10,15 @@ import os
 import subprocess
 import sys
 
+from docker_cli import docker_executable
+
 DEFAULT_MINUTES = 60
 
 
 def _docker_logs(name: str, since: str) -> str:
     try:
         proc = subprocess.run(
-            ["docker", "logs", f"--since={since}", name],
+            [docker_executable(), "logs", f"--since={since}", name],
             capture_output=True,
             text=True,
             timeout=30,
@@ -33,7 +35,7 @@ def pathway_engine() -> dict:
 
     try:
         proc = subprocess.run(
-            ["docker", "exec", "crypto-pathway", "cat", "/tmp/pathway-metrics.json"],
+            [docker_executable(), "exec", "crypto-pathway", "cat", "/tmp/pathway-metrics.json"],
             capture_output=True,
             text=True,
             timeout=15,
@@ -57,7 +59,7 @@ def binance_consumer() -> dict:
     try:
         proc = subprocess.run(
             [
-                "docker",
+                docker_executable(),
                 "exec",
                 "crypto-binance-consumer",
                 "cat",
@@ -94,7 +96,7 @@ def kafka_group(group: str | None = None) -> dict:
     try:
         proc = subprocess.run(
             [
-                "docker",
+                docker_executable(),
                 "exec",
                 "crypto-kafka",
                 "/opt/kafka/bin/kafka-consumer-groups.sh",
