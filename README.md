@@ -6,6 +6,7 @@ RSS/CoinGecko → Dagster → PostgreSQL, quality checks và signals theo giờ.
 ## Trạng thái hiện tại
 
 Kế hoạch sửa lỗi và nâng cấp: [plan/08-fix-upgrade.md](plan/08-fix-upgrade.md).
+Triển khai từng ý và bằng chứng live: [plan/09-live-rollout-and-features.md](plan/09-live-rollout-and-features.md).
 Hướng dẫn cutover, migration, replay và nghiệm thu: [docs/upgrade-runbook.md](docs/upgrade-runbook.md).
 Review baseline: [docs/reviews/2026-10-02-code-review.md](docs/reviews/2026-10-02-code-review.md).
 
@@ -18,7 +19,7 @@ live trong tài liệu cũ là lịch sử của phiên bản cũ.
 ## Kiến trúc
 
 ```text
-Binance WebSocket
+Binance WebSocket + REST historicalTrades backfill
   → binance-consumer (validate trade_id, finite price/quantity)
   → Kafka crypto.trades.v2
   → Pathway (dedupe symbol/trade_id → OHLCV 1m)
@@ -33,6 +34,7 @@ market_1m → detected_signals (VOLUME_SPIKE, PRICE_SPIKE) → signals_<env>
 
 delivery failures → recovery_dlq volume → replay_dlq (ack/commit + checkpoint)
 Pathway snapshots → pathway_state volume
+Raw trade checkpoints + pending gaps → ingestion_state volume
 ```
 
 Dagster có **8 assets, 6 asset checks, 2 jobs và 2 schedules**, dùng RSS,
@@ -83,6 +85,8 @@ docker compose up --build -d
 
 Dagster UI: [localhost:3000](http://localhost:3000). Materialize jobs lần đầu,
 sau đó bật `news_job_schedule` và `market_job_schedule` trong Automation.
+Có thể dùng `uv run python scripts/start_schedules.py` và `--check`;
+xem [quy trình schedules](docs/schedules.md).
 
 ```powershell
 uv sync --frozen
@@ -116,8 +120,10 @@ Postgres, Kafka, DLQ hoặc Pathway state.
 
 - Trade schema v1 thiếu ID không được trộn vào topic v2. Lịch sử sai trước đây
   chưa được sửa tự động; cần raw trades để backfill/rebuild.
-- Binance WebSocket outage có thể bỏ lỡ trades chưa nhận. DLQ chỉ phục hồi
-  các events đã nhận nhưng delivery thất bại; REST backfill chưa triển khai.
+- REST backfill tự phát hiện gap trade ID từ checkpoint đã ack, kể cả sau
+  restart. Cần giữ ingestion_state volume và Binance REST truy cập được;
+  gap chưa phục hồi hiện trong metrics/alerts. Không tự sửa lịch sử v1
+  hoặc khoảng thời gian trước checkpoint đầu tiên của mỗi symbol.
 - Dedupe/state hiện giữ lịch sử, cần theo dõi RAM và dung lượng volume.
   Restart phải giữ state; thay graph/source cần kế hoạch replay riêng.
 - Signals VOLUME_SPIKE/PRICE_SPIKE chạy theo giờ; lần insert đầu tiên của

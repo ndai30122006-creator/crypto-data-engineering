@@ -33,6 +33,7 @@ from ingestion.jlog import get_logger
 from ingestion.kafka_producer import TOPIC_TRADES, build_producer, publish
 
 log = get_logger("binance-consumer")
+_backfill = None
 
 _shutdown = threading.Event()
 _current_ws: websocket.WebSocketApp | None = None
@@ -60,7 +61,10 @@ _counters = {
 def snapshot_metrics() -> dict:
     """Counters hiện tại + uptime (cho metrics file / status)."""
     with _counter_lock:
-        return {**_counters, "uptime_seconds": round(time.time() - _started_at, 1)}
+        stats = {**_counters, "uptime_seconds": round(time.time() - _started_at, 1)}
+    if _backfill is not None:
+        stats["backfill"] = {"enabled": True, **_backfill.snapshot()}
+    return stats
 
 
 def _count(**changes) -> None:
@@ -121,6 +125,8 @@ def load_config() -> dict:
         "delivery_dlq_file": os.getenv(
             "DELIVERY_DLQ_FILE", "/var/lib/crypto/dlq/trades.jsonl"
         ),
+        "backfill_enabled": os.getenv("BACKFILL_ENABLED", "false").lower() == "true",
+        "backfill_state_file": os.getenv("BACKFILL_STATE_FILE", "/var/lib/crypto/ingestion-state/gaps.json"),
     }
 
 
@@ -148,7 +154,7 @@ def _handle_signal(signum, _frame) -> None:
 
 
 def run_forever() -> None:
-    global _current_ws
+    global _current_ws, _backfill
     cfg = load_config()
     url = combined_stream_url(cfg["symbols"])
     log.info(
@@ -163,6 +169,14 @@ def run_forever() -> None:
     backoff = 1
 
     try:
+        if cfg["backfill_enabled"]:
+            from ingestion.backfill import BackfillWorker, GapState
+
+            state = GapState(cfg["backfill_state_file"], cfg["bootstrap_servers"] + "/" + cfg["topic"])
+            _backfill = BackfillWorker(state, producer, cfg["topic"],
+                                       fatal_callback=lambda: _handle_signal(0, None))
+            cfg["backfill"] = _backfill
+            _backfill.start()
         while not _shutdown.is_set():
             ws: websocket.WebSocketApp | None = None
             try:
@@ -198,9 +212,16 @@ def run_forever() -> None:
         # Graceful shutdown: đẩy hết event còn kẹt rồi mới thoát.
         log.info("flushing producer", published=_counters["events_published_total"])
         try:
-            producer.flush(timeout=15)
+            if _backfill is not None:
+                _backfill.close()
         finally:
-            producer.close()
+            try:
+                producer.flush(timeout=15)
+            finally:
+                producer.close()
+                if _backfill is not None:
+                    _backfill.state.flush()  # include final live delivery acknowledgements
+                    _backfill = None
         log.info("shutdown complete")
 
 
@@ -240,6 +261,16 @@ def on_raw_message(producer, cfg: dict, raw: str) -> None:
         _to_dlq(producer, cfg, raw, "invalid-trade")
         return
 
+    backfill = cfg.get("backfill")
+    if backfill is not None:
+        try:
+            backfill.state.observe(event)
+        except OSError as exc:
+            log.error("gap checkpoint failed; stopping consumer", exc=exc)
+            backfill.fatal(exc)
+            dump_metrics(cfg.get("metrics_file", "/tmp/binance-metrics.json"))
+            return
+
     settled = False
     settle_lock = threading.Lock()
 
@@ -258,7 +289,15 @@ def on_raw_message(producer, cfg: dict, raw: str) -> None:
         return True
 
     def _acknowledged(_metadata, _event) -> None:
-        if _settle(True) and beat(cfg["heartbeat_file"]):
+        if not _settle(True):
+            return
+        if backfill is not None:
+            try:
+                backfill.state.ack(_event)
+            except OSError as exc:
+                backfill.fatal(exc)
+                log.error("ack checkpoint failed; stopping consumer", exc=exc)
+        if beat(cfg["heartbeat_file"]):
             dump_metrics(cfg.get("metrics_file", "/tmp/binance-metrics.json"))
 
     def _failed(exc, failed_event) -> None:
@@ -281,6 +320,12 @@ def on_raw_message(producer, cfg: dict, raw: str) -> None:
         else:
             _count(events_delivery_dlq_total=1)
             log.error("delivery failed, saved to recovery DLQ", symbol=event["symbol"])
+        if backfill is not None:
+            try:
+                backfill.state.failed(failed_event)
+            except OSError as exc:
+                backfill.fatal(exc)
+                log.error("failed delivery checkpoint failed; stopping consumer", exc=exc)
         dump_metrics(cfg.get("metrics_file", "/tmp/binance-metrics.json"))
 
     _count(events_received_total=1, events_pending=1)

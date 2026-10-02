@@ -25,6 +25,9 @@ def build_producer(bootstrap_servers: str) -> KafkaProducer:
         enable_idempotence=True,
         retries=5,
         linger_ms=50,
+        request_timeout_ms=10000,
+        delivery_timeout_ms=30000,
+        max_block_ms=10000,
     )
 
 

@@ -110,6 +110,14 @@ def evaluate(metrics: dict, env: dict | None = None) -> list[str]:
             )
     if "error" in metrics.get("pathway", {}):
         alerts.append("ALERT pathway unavailable — inspect engine and metrics source")
+    recovery = metrics.get("binance", {}).get("backfill", {})
+    if isinstance(recovery, dict) and recovery.get("enabled"):
+        for key in ("pending_trades", "checkpoint_failures_total"):
+            value = recovery.get(key)
+            if not isinstance(value, int) or value < 0:
+                alerts.append(f"ALERT backfill {key} missing/invalid")
+            elif value > 0:
+                alerts.append(f"ALERT backfill {key}={value} — inspect raw trade gaps/checkpoint/REST access")
     for key, env_name, default, op, action in CHECKS:
         # Section lỗi (infra mới/thiếu metrics) → bỏ qua rule, tránh alert giả.
         section_name = _SECTION_OF.get(key)

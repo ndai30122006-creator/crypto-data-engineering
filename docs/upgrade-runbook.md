@@ -142,10 +142,56 @@ sau recreate và trade mới sau recreate vẫn aggregate với lịch sử cũ.
 - Kafka retention, Pathway snapshots và DLQ là một chuỗi phục hồi; backup
   cần giữ chúng nhất quán. Không reset group hoặc xóa volume trong incident
   khi chưa có phương án rebuild. Theo dõi RAM/disk vì dedupe giữ lịch sử.
-- Chưa có REST backfill để lấp khoảng trống WebSocket outage. Muốn production
-  cần quản lý gap theo trade ID, backfill có rate limit, retention/state bounds,
-  backup/restore drill và cấu hình Kafka phù hợp.
+- Raw trade backfill đã triển khai; giới hạn và quy trình bên dưới. Muốn
+  production vẫn cần backup/restore drill toàn bộ state, retention/state bounds
+  và cấu hình Kafka phù hợp. Stack này là single broker local.
 - PRICE_SPIKE đã chạy batch cùng detected_signals; ngưỡng % qua
   PRICE_SPIKE_THRESHOLD_PCT (mặc định 1). SQL view market_analytics_1m
   cung cấp biến động 1m/5m/15m sau migration 002. Query view để đọc giá trị
   hiện tại; không dùng cột legacy price_change_1m trong market_1m.
+
+## 6. Binance raw trade backfill
+
+Compose bật `BACKFILL_ENABLED=true`. Worker dùng
+[`GET /api/v3/historicalTrades`](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md#old-trade-lookup)
+với `fromId` và tối đa 1000 raw trades/page. Giữ nguyên ID/price/qty/time,
+validate cùng contract v2; không chia quantity gộp của aggTrades thành raw.
+Đã kiểm tra endpoint public không cần API key tại thời điểm triển khai.
+
+Checkpoint `/var/lib/crypto/ingestion-state/gaps.json` trong named volume
+`ingestion_state` lưu destination (bootstrap/topic), high-water ack per symbol
+và các ranges chưa phục hồi. Gap được fsync trước khi enqueue trade live mới;
+high-water live được persist tối đa một lần mỗi giây và flush khi shutdown.
+Crash có thể replay một số ID đã gửi, Pathway dedupe xử lý đúng. Sau restart,
+trade live đầu tiên được so với high-water cũ để phát hiện khoảng outage.
+Chỉ chạy một consumer/worker ghi cùng state file; không chỉnh/xóa state khi
+đang chạy. Đổi topic/bootstrap cần state riêng và phương án cutover.
+
+Worker round-robin symbols, một page/request rồi chờ ít nhất 1 giây
+(tối đa 1500 request weight/phút cho một worker; IP dùng chung còn chịu
+giới hạn tổng Binance). Enqueue bounded page rồi đợi Kafka ack theo thứ tự;
+checkpoint chỉ xóa prefix đã ack. Network/5xx retry tối đa 3 lần; 418/429
+tôn trọng Retry-After. Lỗi quyền REST, schema, ID thiếu hoặc Kafka giữ gap
+để retry và xuất metrics, không đánh dấu hoàn thành. Checkpoint không ghi
+được sẽ dừng consumer để không tiếp tục ack khi mất dấu gap.
+
+`binance.backfill` trong status JSON có pending_gaps/pending_trades,
+recovered_total/failures_total/checkpoint_failures_total, last_ack/gaps/last_error.
+Counter recovered là deliveries đã ack trong process, có thể gồm replay;
+không dùng làm số trades unique. Các counters WS vẫn chỉ đếm WebSocket.
+Pending gap hoặc checkpoint failure tạo ALERT; Docker healthy chưa có nghĩa
+lịch sử đã đầy đủ. DLQ replay tay có thể trùng với REST retry, dedupe bảo vệ.
+
+Nghiệm thu local sau khi đủ 5 symbols có checkpoint và không còn gap:
+`uv run python -m scripts.verify_backfill --allow-restarts`.
+Drill dừng consumer ngắn hạn rồi recreate giữ volume, kiểm tra raw REST →
+Kafka acks, gap về 0 và ghi bằng chứng `.recovery/backfill-<timestamp>`.
+
+Coverage bắt đầu từ ack checkpoint đầu tiên của từng symbol. Không tự
+backfill thời gian trước đó, không tự sửa nến v1; REST không truy cập được
+hoặc raw IDs không liên tục thì giữ unresolved gap. Không xóa volume để
+làm alert biến mất. Backup checkpoint cùng Kafka/Pathway state và DB.
+
+Sau rollout/recreate, chạy `uv run python scripts/start_schedules.py --check`;
+nếu chưa RUNNING, chạy command không có --check để bật qua workspace của
+webserver. Xem [schedules](schedules.md) và đối chiếu tick trong daemon logs.

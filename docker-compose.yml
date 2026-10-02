@@ -145,9 +145,12 @@ services:
       SYMBOLS: BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT
       HEARTBEAT_FILE: /tmp/binance-consumer.heartbeat
       DELIVERY_DLQ_FILE: /var/lib/crypto/dlq/trades.jsonl
+      BACKFILL_ENABLED: ${BACKFILL_ENABLED:-true}
+      BACKFILL_STATE_FILE: /var/lib/crypto/ingestion-state/gaps.json
     volumes:
       - ./ingestion:/opt/consumer/ingestion
       - recovery_dlq:/var/lib/crypto/dlq
+      - ingestion_state:/var/lib/crypto/ingestion-state
     depends_on:
       kafka:
         condition: service_healthy
@@ -160,7 +163,7 @@ services:
       retries: 3
       start_period: 90s
     # Cho flush(15s) kịp chạy trước SIGKILL khi docker stop.
-    stop_grace_period: 30s
+    stop_grace_period: 60s
     restart: unless-stopped
 
   pathway:
@@ -205,3 +208,4 @@ volumes:
   kafka_data:
   recovery_dlq:
   pathway_state:
+  ingestion_state:
