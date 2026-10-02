@@ -123,6 +123,18 @@ checkpoint, không gửi/ghi DB hoặc cập nhật checkpoint. Crash giữa ack
 checkpoint có thể gửi lại; dedupe trade ID và candle version xử lý replay.
 Khi file nguồn thay đổi prefix, command dừng, không tự bỏ qua dữ liệu.
 
+### Recovery drill local
+
+`uv run python -m scripts.verify_recovery --allow-restarts` chủ động restart
+Pathway, dừng consumer/Kafka ngắn hạn rồi restore trong finally. Chỉ chạy
+trên local stack đã backup. Dùng symbol test riêng, không reset offsets/xóa
+volumes; lưu DLQ/checkpoints/results trong `.recovery/<run-id>`.
+DB fault là connection thật bị `pg_terminate_backend`, sau đó endpoint
+reconnect bị từ chối; không dừng PostgreSQL của toàn hệ thống.
+Drill kiểm tra exact OHLCV sau restart, broker outage → trade DLQ → ack replay,
+DB failure → candle DLQ → commit replay, resume 0 records, DLQ volume tồn tại
+sau recreate và trade mới sau recreate vẫn aggregate với lịch sử cũ.
+
 ## 5. Giới hạn và các bước tiếp theo
 
 - DB version guard dùng thời gian UTC của writer: các máy writers cần
