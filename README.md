@@ -45,6 +45,12 @@ cần 6 nến 1m liên tục đã đóng, quét mọi endpoint trong giờ vừa
 Đặt `PRICE_SPIKE_THRESHOLD_PCT` để đổi ngưỡng. Signal unique theo
 symbol/type/window; đây là nhãn phân tích batch, không đặt lệnh giao dịch.
 
+View `market_analytics_1m` cung cấp `price_change_1m`, `price_change_5m`,
+`price_change_15m` theo %. Cần N+1 nến liên tục đã đóng, giá dương hữu hạn;
+thiếu/invalid/partial → NULL. View tính lại từ candles mới nhất khi query,
+kể cả sau late trade; cột legacy `market_1m.price_change_1m` vẫn để NULL.
+DB cũ chạy migration 002; DB mới có view trong baseline schema.
+
 ## Stack và cấu trúc
 
 Dependencies được khóa trong `uv.lock`; Python 3.12, Dagster, Pathway 0.32.1
@@ -114,7 +120,7 @@ Postgres, Kafka, DLQ hoặc Pathway state.
   các events đã nhận nhưng delivery thất bại; REST backfill chưa triển khai.
 - Dedupe/state hiện giữ lịch sử, cần theo dõi RAM và dung lượng volume.
   Restart phải giữ state; thay graph/source cần kế hoạch replay riêng.
-- Signals VOLUME_SPIKE/PRICE_SPIKE chạy theo giờ; price change 5m/15m
-  đang được bổ sung qua SQL view trong plan 09.
+- Signals VOLUME_SPIKE/PRICE_SPIKE chạy theo giờ; lần insert đầu tiên của
+  symbol/type/window được giữ làm sự kiện phát hiện, không là chỉ báo realtime.
 - Credentials đi qua environment; `.env` được ignore. Giá trị mặc định
   trong Compose chỉ dành cho môi trường local.

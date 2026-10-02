@@ -1,4 +1,5 @@
 """Unit tests cho migrate runner (mock conn, file thật trong tmp_path)."""
+import os
 import socket
 from unittest.mock import MagicMock
 
@@ -41,12 +42,18 @@ def _pg_up() -> bool:
         return False
 
 
-@pytest.mark.skipif(not _pg_up(), reason="cần Postgres local")
+@pytest.mark.skipif(os.getenv("INTEGRATION") != "1" or not _pg_up(),
+                    reason="cần INTEGRATION=1 + Postgres local")
 def test_migrate_py_up_to_date_live():
-    """Chạy runner thật vào DB local: hiện 0 migration → up to date."""
+    """Explicit integration opt-in; second execution must be idempotent."""
     import subprocess
     import sys
 
+    proc = subprocess.run(
+        [sys.executable, "scripts/migrate.py"],
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    assert proc.returncode == 0
     proc = subprocess.run(
         [sys.executable, "scripts/migrate.py"],
         capture_output=True, text=True, timeout=30, check=False,

@@ -145,5 +145,7 @@ sau recreate và trade mới sau recreate vẫn aggregate với lịch sử cũ.
 - Chưa có REST backfill để lấp khoảng trống WebSocket outage. Muốn production
   cần quản lý gap theo trade ID, backfill có rate limit, retention/state bounds,
   backup/restore drill và cấu hình Kafka phù hợp.
-- PRICE_SPIKE, price change 5m/15m, dashboards dài hạn là scope mở rộng sau
-  khi nghiệm thu độ đúng v2; chưa gắn nhãn hoàn thành.
+- PRICE_SPIKE đã chạy batch cùng detected_signals; ngưỡng % qua
+  PRICE_SPIKE_THRESHOLD_PCT (mặc định 1). SQL view market_analytics_1m
+  cung cấp biến động 1m/5m/15m sau migration 002. Query view để đọc giá trị
+  hiện tại; không dùng cột legacy price_change_1m trong market_1m.

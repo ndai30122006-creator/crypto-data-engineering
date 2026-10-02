@@ -7,4 +7,6 @@ Chạy: `uv run python scripts/migrate.py` (đọc `DATABASE_URL`,
 default localhost). Idempotent: file đã chạy ghi vào bảng
 `schema_migrations`, chạy lại bỏ qua.
 
-Hiện chưa có migration nào đang chờ — thư mục giữ quy ước + runner.
+001 thêm phiên bản updated_at cho candle upsert/replay.
+002 thêm view market_analytics_1m (price change 1m/5m/15m, contiguous closed candles).
+Baseline mới đã gồm cả hai thay đổi; runner vẫn ghi versions khi chạy lần đầu.
