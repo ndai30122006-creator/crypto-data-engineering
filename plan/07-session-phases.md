@@ -1,5 +1,8 @@
 # Session build: Phase 1–4 (streaming E2E → event-time → observability → failure handling)
 
+> Ghi chép lịch sử. Acceptance bản hiện tại ở [plan 08](08-fix-upgrade.md).
+> Các số live/DONE bên dưới không thay cho kiểm chứng v2.
+
 Chuỗi 4 phase làm trong session này, sau khi batch (Phase 1–2 cũ) và
 streaming (Phase 3–4 cũ) đã live. Mỗi phase: mục tiêu → steps → file →
 verify. Chi tiết trạng thái tổng xem `docs/roadmap.md`.
@@ -24,10 +27,10 @@ live, engine thật gom nến, test poll DB assert. Symbol `E2E*` + timestamp
 | 1.5 | Idempotency: publish lại → nến không đổi | idem | pass 17.68s |
 
 Bài học lòi ra khi làm:
-- `earliest/latest` của Pathway theo processing-time → open/close sai khi
-  burst. Fix: min/max composite key `ts|price` (đúng data-time mọi thứ tự).
-- `trade_count == N` không bao giờ khớp khi duplicate vượt qua N → dùng `>=`
-  (at-least-once). Assert OHLC chính xác + volume/count `>=`.
+- `earliest/latest` theo processing-time sai khi burst. Cách cũ `ts|price`
+  vẫn sai khi tie; hiện dùng `(timestamp, trade_id)`.
+- Việc nới volume/count ở session cũ đã che duplicate bug. Bản v2 dedupe
+  trade ID và assert volume/count chính xác, kể cả khi publish lại.
 
 Helpers dùng chung: `tests/integration/helpers.py` (env override
 `TEST_KAFKA_BOOTSTRAP`/`TEST_DATABASE_URL`, skip khi thiếu infra, cleanup

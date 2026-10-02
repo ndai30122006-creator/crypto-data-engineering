@@ -1,4 +1,5 @@
 """Pipeline: fetch_market -> validate_market -> loaded_snapshot (mỗi giờ)."""
+
 from datetime import UTC, datetime
 
 import msgspec
@@ -10,31 +11,38 @@ from dagster_project.resources import CoinGeckoResource, PostgresResource
 
 
 @asset
-def fetch_market(
-    context: AssetExecutionContext, coingecko: CoinGeckoResource
-) -> list[dict]:
+def fetch_market(context: AssetExecutionContext, coingecko: CoinGeckoResource) -> dict:
     """Lấy top coins từ CoinGecko, validate msgspec."""
     raw_items = coingecko.fetch_markets()
     valid: list[dict] = []
+    errors: list[dict] = []
     for item in raw_items:
         try:
-            valid.append(msgspec.to_builtins(msgspec.convert(from_coingecko(item), type=RawMarket)))
-        except msgspec.ValidationError as exc:
-            context.log.warning(f"skip invalid coin {item.get('id')}: {exc}")
+            valid.append(
+                msgspec.to_builtins(
+                    msgspec.convert(from_coingecko(item), type=RawMarket)
+                )
+            )
+        except (msgspec.ValidationError, AttributeError, TypeError, ValueError) as exc:
+            errors.append(
+                {"pipeline": "market", "payload": item, "error": f"schema: {exc}"}
+            )
+            context.log.warning(f"quarantine invalid coin schema: {exc}")
     context.log.info(f"fetched {len(valid)} coins")
-    context.add_output_metadata({"coins": len(valid), "raw_items": len(raw_items)})
-    return valid
+    context.add_output_metadata(
+        {"coins": len(valid), "raw_items": len(raw_items), "schema_errors": len(errors)}
+    )
+    return {"valid": valid, "errors": errors}
 
 
 @asset
-def validate_market(
-    context: AssetExecutionContext, fetch_market: list[dict]
-) -> dict:
+def validate_market(context: AssetExecutionContext, fetch_market: dict) -> dict:
     """Tách valid/errors theo rules (validate 1 lần duy nhất)."""
-    records = [msgspec.to_builtins(msgspec.convert(a, type=RawMarket)) for a in fetch_market]
+    records = fetch_market["valid"]
     valid, errors = validate(records)
+    errors = [*fetch_market["errors"], *errors]
     for err in errors:
-        context.log.warning(f"bad record: {err['error']} | {err['payload'].get('symbol')}")
+        context.log.warning(f"bad record: {err['error']}")
     context.log.info(f"valid={len(valid)} errors={len(errors)}")
     context.add_output_metadata({"valid": len(valid), "errors": len(errors)})
     return {"valid": valid, "errors": errors}

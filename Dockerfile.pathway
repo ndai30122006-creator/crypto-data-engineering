@@ -20,5 +20,6 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY streaming ./streaming
 COPY ingestion ./ingestion
+COPY scripts ./scripts
 
 CMD ["python", "-m", "streaming.pathway_pipeline"]

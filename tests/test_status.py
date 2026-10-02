@@ -1,4 +1,5 @@
 """Unit tests cho status dashboard (pure render, offline)."""
+
 import sys
 from pathlib import Path
 
@@ -9,9 +10,18 @@ from status import CONTAINERS, container_health, render
 
 def _metrics(**over):
     base = {
-        "db": {"rows_total": 1254320, "newest_candle_age_min": 0.13},
+        "db": {
+            "rows_total": 1254320,
+            "newest_candle_age_min": 0.13,
+            "candles_10m": 50,
+            "news_1h": 1,
+        },
         "kafka": {"log_end_total": 152421, "lag_total": 0},
-        "binance": {"publish_failures_total": 4},
+        "binance": {
+            "publish_failures_total": 0,
+            "events_lost": 0,
+            "dlq_write_failures_total": 0,
+        },
         "dagster_runs": {"failed": 0},
     }
     for section, values in over.items():
@@ -54,6 +64,7 @@ def test_container_health_parses_ps():
     from unittest.mock import MagicMock, patch
 
     proc = MagicMock()
+    proc.returncode = 0
     proc.stdout = "crypto-postgres|Up 5 minutes (healthy)\nfoo|Up 1 minute\n"
     with patch("status.subprocess.run", return_value=proc):
         health = container_health()

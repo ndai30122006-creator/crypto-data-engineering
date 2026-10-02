@@ -1,5 +1,8 @@
 # Phase 1 — News pipeline ✅ DONE
 
+> Ghi chép lịch sử. Collector hiện là `RSSFeedResource`;
+> kiểm chứng bản mới ở [plan 08](08-fix-upgrade.md).
+
 ## Đã triển khai
 
 ```

@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS market_1m (
     volume NUMERIC(30,12),
     trade_count INTEGER,
     price_change_1m NUMERIC(10,4),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (symbol, window_start)
 );
 

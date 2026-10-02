@@ -1,144 +1,115 @@
 # crypto-data-engineering
 
-Mini real-time Crypto Data Platform (training Data Engineer):
-ingest Binance market events, collect crypto news & market-cap snapshots,
-process streaming data with Pathway, orchestrate batch pipelines with
-Dagster, store queryable data in PostgreSQL.
+Crypto Data Platform để học Data Engineering: Binance → Kafka → Pathway → PostgreSQL,
+RSS/CoinGecko → Dagster → PostgreSQL, quality checks và signals theo giờ.
 
-## Status
+## Trạng thái hiện tại
 
-- [x] News pipeline (RSS → Dagster → PostgreSQL) — live, schedule mỗi 5 phút
-- [x] Market-cap snapshot job (hourly, CoinGecko top 50)
-- [x] Resource practice P1–P4 (RSS/CoinGecko/Postgres resources, env-aware tables, mock tests)
-- [x] Binance → Kafka ingestion (realtime, 5 cặp)
-- [x] Kafka → Pathway → OHLCV 1m (stream processing → `market_1m`)
-- [x] News ↔ market correlation queries (query 8, LAG-based)
-- [x] Data quality: 6 asset checks + pure checks module
-- [x] Reliability: retries, delivery handling, graceful shutdown, integration tests
-- [x] Event-time E2E: out-of-order, late, duplicate, multi-symbol (engine live)
-- [x] Observability LOG→METRIC→HEALTH→ALERT: metrics, alert rules, status dashboard
-- [x] Failure handling: Kafka/WS retry, invalid reject, sink retry + DLQ file
+Kế hoạch sửa lỗi và nâng cấp: [plan/08-fix-upgrade.md](plan/08-fix-upgrade.md).
+Hướng dẫn cutover, migration, replay và nghiệm thu: [docs/upgrade-runbook.md](docs/upgrade-runbook.md).
+Review baseline: [docs/reviews/2026-10-02-code-review.md](docs/reviews/2026-10-02-code-review.md).
 
-## Architecture
+Đã triển khai contract trade v2, dedupe theo trade ID, OHLC theo event time,
+acknowledged/pending/failure metrics, durable DLQ và replay có checkpoint,
+quarantine lỗi schema CoinGecko, detector xét mọi cửa sổ 5 phút trong giờ.
+Kiểm chứng offline và kiểm chứng live được ghi riêng trong plan; các xác nhận
+live trong tài liệu cũ là lịch sử của phiên bản cũ.
 
-```
-Crypto News API / RSS (CoinDesk, CoinTelegraph, BitcoinMag, Google News)
-        │  every 5 min (news_job_schedule)
-        ▼
-┌───────────────┐
-│    Dagster    │  6 assets + 6 asset checks (freshness/dup/null/count/schema)
-│  raw_news     │  RSSFeedResource fetch 4 RSS, validate with msgspec
-│  cleaned_news │  strip HTML, extract symbols, sentiment, dedupe
-│  loaded_news   │  PostgresResource.insert_news, skip existing URL
-└───────┬───────┘
-        ▼
-┌───────────────┐
-│  PostgreSQL   │
-│  crypto_news  │
-└───────────────┘
+## Kiến trúc
 
-CoinGecko API ── hourly (market_job_schedule) ──▶ fetch_market
-        ──▶ validate_market ──▶ loaded_snapshot ──▶ crypto_market_snapshot
-                                                  └─▶ data_quality_errors (bad records)
+```text
+Binance WebSocket
+  → binance-consumer (validate trade_id, finite price/quantity)
+  → Kafka crypto.trades.v2
+  → Pathway (dedupe symbol/trade_id → OHLCV 1m)
+  → PostgreSQL market_1m (version-aware upsert)
 
-Binance WS ──▶ binance-consumer ──▶ Kafka (crypto.trades)
-        ──▶ Pathway (tumbling 1m OHLCV) ──▶ market_1m ──┐
-                                                        ├─▶ correlation query (news ±10m, |Δ|>1%)
-Crypto News ────────────────────────────────────────────┘
+RSS → raw_news → cleaned_news → loaded_news → crypto_news
+CoinGecko → fetch_market → validate_market → loaded_snapshot
+                                                → crypto_market_snapshot
+                     schema/business rejects → data_quality_errors
+market_1m → detected_signals (VOLUME_SPIKE) → signals
+          → quarantine_ohlcv → data_quality_errors
+
+delivery failures → recovery_dlq volume → replay_dlq (ack/commit + checkpoint)
+Pathway snapshots → pathway_state volume
 ```
 
-Tables are env-suffixed outside prod (e.g. `crypto_news_local`
-when `DAGSTER_ENVIRONMENT=local`). `market_1m` is global (streaming).
+Dagster có **8 assets, 6 asset checks, 2 jobs và 2 schedules**, dùng RSS,
+CoinGecko và Postgres resources. News chạy mỗi 5 phút; market, signals và
+OHLCV quality chạy theo giờ. Bảng batch có suffix `_local`/`_staging`,
+production không suffix; `market_1m` và `signals` dùng chung.
 
-## Tech stack
+## Stack và cấu trúc
 
-| Tech (locked in `uv.lock`) | Role |
+Dependencies được khóa trong `uv.lock`; Python 3.12, Dagster, Pathway 0.32.1
+(Linux/macOS), kafka-python, psycopg2, httpx, msgspec và Ruff.
+Compose có 7 services: postgres, kafka, dagster-code, dagster-webserver,
+dagster-daemon, binance-consumer và pathway. Kafka single broker phù hợp local learning.
+
+| Thư mục | Nội dung |
 |---|---|
-| Python 3.12 | Pipeline code (`.python-version`) |
-| Dagster 1.13.22 | Orchestration (6 assets + 6 checks, jobs + schedules) |
-| PostgreSQL 16 | Storage (`crypto_db`) |
-| Kafka 3.9.0 (KRaft, single broker) | Realtime trades buffer (`crypto.trades`) |
-| Pathway 0.32.1 | Stream processing (tumbling 1m OHLCV, Linux-only) |
-| kafka-python 3.0.11 + websocket-client 1.9.2 | Ingestion (producer + Binance WS) |
-| httpx 0.28.1 + feedparser 6.0.14 | RSS fetch & parse (retry/backoff) |
-| msgspec 0.21.1 / orjson 3.12.0 / ciso8601 2.3.3 | Validate + JSON + parse ngày tốc độ cao |
-| jlogger (git) | Logger JSON structured cho services (`ingestion/jlog.py`) |
-| python-dateutil 2.9.0 + pyyaml 6.0.3 | Fallback parse RFC-2822 + đọc config YAML |
-| psycopg2-binary 2.9.13 | Postgres driver |
-| Docker Compose | 7 services: postgres, kafka, dagster-code (gRPC 4000), webserver, daemon, binance-consumer, pathway |
-| uv | Package + project manager (`pyproject.toml` + `uv.lock`) |
-| pytest 9.1.1 | 86 unit tests (offline) + integration tests (`INTEGRATION=1`) |
+| `dagster_project/` | Assets, quality checks, resources và definitions |
+| `ingestion/` | Binance parser, Kafka producer, callbacks, durable DLQ |
+| `streaming/` | Graph Pathway, Python spec, sink, signals và quality |
+| `database/` | Baseline schema, migrations, analytical queries |
+| `scripts/` | Status, metrics, alert, migrations, replay |
+| `tests/` | Offline regressions, Linux graph, live integration |
+| `plan/` | Các kế hoạch, acceptance criteria, nhật ký thực hiện |
+| `docs/` | Review, runbook, observability, hướng dẫn học |
 
-## Project structure
+## Chạy local
 
-```
-docker-compose.yml        7 services (postgres, kafka, dagster ×3, consumer, pathway)
-Dockerfile.dagster + Dockerfile.consumer + Dockerfile.pathway
-pyproject.toml + uv.lock (.python-version: 3.12)
-workspace.yaml            grpc_server dagster-code:4000 (location: crypto-data-platform)
-config/config.yaml        4 RSS feed URLs
-database/schema.sql       crypto_news, crypto_market_snapshot, data_quality_errors, market_1m
-database/migrations/      versioned schema changes (scripts/migrate.py)
-database/queries.sql      8 analytical queries (incl. correlation)
-dagster_project/
-  definitions.py          2 jobs + 2 schedules + 6 checks + 3 resources
-  resources/              RSSFeedResource, CoinGeckoResource, PostgresResource (env-aware, retry)
-  news/ + market/         pure logic (parser, cleaner, schemas, validator)
-  quality/                pure checks + 6 asset checks
-  assets/                 news_assets (3) + market_assets (3)
-ingestion/                Binance WS → Kafka (reconnect, heartbeat, graceful shutdown)
-streaming/                Pathway OHLCV engine + upsert sink + correlation
-scripts/                  status.py (dashboard), metrics.py (JSON), alert.py (rules), migrate.py
-tests/                    unit (offline) + integration (INTEGRATION=1: streaming E2E, event-time)
-plan/                     roadmap + phase 01–07 plans
-docs/                     roadmap + observability + learning guides
-```
-
-## Quickstart
-
-Requirements: Docker Desktop with WSL2 backend (Windows).
+Cần Docker Desktop với Linux containers và Docker CLI dùng được từ terminal.
+Với DB/topic đã có dữ liệu, làm theo **runbook cutover** trước khi start phiên bản mới.
 
 ```powershell
+Copy-Item .env.example .env
+# Sửa .env theo môi trường của bạn.
+docker compose config --quiet
 docker compose up --build -d
 ```
 
-- Dagster UI: http://localhost:3000
-  - Assets tab → **Materialize all** (run once now)
-  - Automation tab → enable **news_job_schedule** (every 5 min)
-    and **market_job_schedule** (hourly)
-- Check data:
+Dagster UI: [localhost:3000](http://localhost:3000). Materialize jobs lần đầu,
+sau đó bật `news_job_schedule` và `market_job_schedule` trong Automation.
+
 ```powershell
-docker exec crypto-postgres psql -U admin -d crypto_db -c "SELECT source, count(*) FROM crypto_news_local GROUP BY 1;"
+uv sync --frozen
+uv run ruff check dagster_project ingestion streaming scripts tests
+uv run pytest tests/ -q
+
+# PowerShell không tự load .env: đặt DATABASE_URL/DAGSTER_ENVIRONMENT cho commands local.
+$env:DAGSTER_ENVIRONMENT="local"
+# $env:DATABASE_URL = <connection string cho DB đích>
+uv run dagster definitions validate -m dagster_project.definitions
+uv run python scripts/migrate.py
+uv run python scripts/status.py
+uv run python scripts/alert.py
+
+# Khi Kafka/Postgres/Pathway đang chạy:
+$env:INTEGRATION="1"
+uv run pytest tests/integration/ tests/test_integration.py -q
 ```
-- Run tests (local): `uv sync; uv run pytest tests/ -q`
-  - Local Dagster CLI needs env vars first:
-    `$env:DATABASE_URL="..."; $env:DAGSTER_ENVIRONMENT="local"`
-- Integration tests (cần stack Docker đang lên):
-  `$env:INTEGRATION="1"; uv run pytest tests/ -q`
-- Health tổng: `uv run python scripts/status.py` (dashboard: health, flow, data)
-- Metrics máy đọc: `uv run python scripts/metrics.py` (JSON)
-- Alert theo ngưỡng: `uv run python scripts/alert.py` (exit 1 khi đỏ, xem `docs/observability.md`)
-- Migrations: `uv run python scripts/migrate.py`
-- Stop: `docker compose down` (data kept in `pgdata` volume)
 
-## Secrets
+CI bắt buộc import Pathway trên Linux và chạy graph thực; một job riêng
+khởi động Kafka/Postgres/Pathway và chạy streaming E2E.
 
-- Không hard-code credentials: compose đọc `${POSTGRES_DB/USER/PASSWORD:-default}`,
-  code đọc `DATABASE_URL`/`DAGSTER_ENVIRONMENT` qua `EnvVar` (Dagster UI chỉ hiện tên biến).
-- Override local: `copy .env.example .env` rồi sửa — `.env` đã ignore khỏi git.
-- Quy ước: secret chỉ đi qua env, không bao giờ vào code/image/docs.
+`status.py` dùng cùng alert rules với `alert.py`; exit 1 khi health/data/source
+có lỗi. Metrics JSON: `uv run python scripts/metrics.py`.
+Chi tiết: [observability](docs/observability.md).
 
-## Notes
+`docker compose down` giữ named volumes. Không dùng `down -v` khi còn cần
+Postgres, Kafka, DLQ hoặc Pathway state.
 
-- CoinTelegraph links carry `?utm_*` params → stripped in `normalize_url()` for correct dedupe.
-- CoinDesk ships empty `<content:encoded/>` which makes feedparser drop
-  `<description>` → stripped in `sanitize_feed_xml()` (`news/parser.py`).
-- Postgres here is OLTP/operational storage + light analytics, not a
-  dedicated OLAP store.
-- Dates: `ciso8601` fast path for ISO-8601, `dateutil` fallback for RFC-2822
-  (RSS pubDates) — see `news/parser.py`.
-- Schemas use msgspec Structs: validation happens on `convert`/decode,
-  not on direct construction — assets always go through `convert`.
-- Logging 2 hệ, không lẫn: services (consumer/pathway/producer) dùng
-  jlogger JSON qua `ingestion/jlog.py` (`log.info("tick", symbol=..., price=...)`);
-  Dagster assets/resources dùng `context.log` / `get_dagster_logger`.
+## Giới hạn vận hành
+
+- Trade schema v1 thiếu ID không được trộn vào topic v2. Lịch sử sai trước đây
+  chưa được sửa tự động; cần raw trades để backfill/rebuild.
+- Binance WebSocket outage có thể bỏ lỡ trades chưa nhận. DLQ chỉ phục hồi
+  các events đã nhận nhưng delivery thất bại; REST backfill chưa triển khai.
+- Dedupe/state hiện giữ lịch sử, cần theo dõi RAM và dung lượng volume.
+  Restart phải giữ state; thay graph/source cần kế hoạch replay riêng.
+- Signals hiện là VOLUME_SPIKE batch. PRICE_SPIKE và price change 5m/15m
+  là các bước mở rộng chưa triển khai.
+- Credentials đi qua environment; `.env` được ignore. Giá trị mặc định
+  trong Compose chỉ dành cho môi trường local.

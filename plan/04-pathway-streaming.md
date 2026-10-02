@@ -1,4 +1,8 @@
-# Phase 4 — Kafka → Pathway → OHLCV 1m (stream processing) ✅ DONE, live
+# Phase 4 — Kafka → Pathway → OHLCV 1m (kế hoạch gốc)
+> Scope hiện tại: OHLCV 1m + VOLUME_SPIKE batch; PRICE_SPIKE và price change
+> 5m/15m chưa triển khai. Topic v2, dedupe và acceptance ở
+> [plan 08](08-fix-upgrade.md). Schema dưới đây là bản thiết kế lịch sử;
+> schema thực ở `database/schema.sql`, có `updated_at` và unique signals.
 > Đã triển khai: `streaming/` (windows pure + engine Pathway 0.32.1 + sink upsert),
 > service `pathway`, bảng `market_1m` live. Chi tiết xem `docs/roadmap.md` §4.
 

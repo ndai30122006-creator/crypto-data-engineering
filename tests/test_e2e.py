@@ -3,6 +3,7 @@
 Binance raw → parse → serialize → aggregate OHLCV → to_row →
 upsert SQL (mock conn) → correlation. Rớt ở đâu là biết nấc đó sai.
 """
+
 from unittest.mock import MagicMock
 
 import orjson
@@ -13,12 +14,39 @@ from streaming.postgres_sink import UPSERT_1M, to_row
 from streaming.windows import aggregate
 
 RAW_WS = [
-    {"stream": "btcusdt@trade",
-     "data": {"e": "trade", "s": "BTCUSDT", "p": "100", "q": "1", "T": 1789363000000}},
-    {"stream": "btcusdt@trade",
-     "data": {"e": "trade", "s": "BTCUSDT", "p": "110", "q": "2", "T": 1789363030000}},
-    {"stream": "btcusdt@trade",
-     "data": {"e": "trade", "s": "BTCUSDT", "p": "105", "q": "1", "T": 1789363060000}},
+    {
+        "stream": "btcusdt@trade",
+        "data": {
+            "e": "trade",
+            "t": 1,
+            "s": "BTCUSDT",
+            "p": "100",
+            "q": "1",
+            "T": 1789363000000,
+        },
+    },
+    {
+        "stream": "btcusdt@trade",
+        "data": {
+            "e": "trade",
+            "t": 2,
+            "s": "BTCUSDT",
+            "p": "110",
+            "q": "2",
+            "T": 1789363030000,
+        },
+    },
+    {
+        "stream": "btcusdt@trade",
+        "data": {
+            "e": "trade",
+            "t": 3,
+            "s": "BTCUSDT",
+            "p": "105",
+            "q": "1",
+            "T": 1789363060000,
+        },
+    },
 ]
 
 

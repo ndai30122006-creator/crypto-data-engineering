@@ -29,7 +29,7 @@ services:
       - "4000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-crypto_db}
-      DAGSTER_ENVIRONMENT: local
+      DAGSTER_ENVIRONMENT: ${DAGSTER_ENVIRONMENT:-local}
     volumes:
       - ./dagster_project:/opt/dagster/dagster_project
       - ./streaming:/opt/dagster/streaming
@@ -135,12 +135,14 @@ services:
     container_name: crypto-binance-consumer
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      KAFKA_TOPIC: crypto.trades
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-crypto.trades.v2}
       KAFKA_DLQ_TOPIC: crypto.dlq
       SYMBOLS: BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT
       HEARTBEAT_FILE: /tmp/binance-consumer.heartbeat
+      DELIVERY_DLQ_FILE: /var/lib/crypto/dlq/trades.jsonl
     volumes:
       - ./ingestion:/opt/consumer/ingestion
+      - recovery_dlq:/var/lib/crypto/dlq
     depends_on:
       kafka:
         condition: service_healthy
@@ -163,9 +165,12 @@ services:
     container_name: crypto-pathway
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      KAFKA_TOPIC: crypto.trades
-      KAFKA_GROUP_ID: pathway-ohlcv-1m
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-crypto.trades.v2}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID:-pathway-ohlcv-1m-v2}
+      DLQ_FILE: /var/lib/crypto/dlq/candles.jsonl
+      PATHWAY_PERSISTENCE_DIR: /var/lib/crypto/pathway-state
       PGHOST: postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-secret}@postgres:5432/${POSTGRES_DB:-crypto_db}
       PGPORT: 5432
       PGDATABASE: ${POSTGRES_DB:-crypto_db}
       PGUSER: ${POSTGRES_USER:-admin}
@@ -173,6 +178,8 @@ services:
     volumes:
       - ./streaming:/opt/streaming/streaming
       - ./ingestion:/opt/streaming/ingestion
+      - recovery_dlq:/var/lib/crypto/dlq
+      - pathway_state:/var/lib/crypto/pathway-state
     depends_on:
       kafka:
         condition: service_healthy
@@ -191,3 +198,5 @@ volumes:
   pgdata:
   dagster_home:
   kafka_data:
+  recovery_dlq:
+  pathway_state:

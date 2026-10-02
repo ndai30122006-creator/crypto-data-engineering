@@ -1,4 +1,5 @@
 """Unit tests cho metrics/alert (mock infra, offline)."""
+
 import json
 import sys
 from pathlib import Path
@@ -13,11 +14,20 @@ from metrics import collect
 def _metrics(**over):
     base = {
         "dagster_runs": {"success": 5, "failed": 0},
-        "binance": {"events_received_total": 100, "events_published_total": 100,
-                    "events_invalid_total": 0, "publish_failures_total": 0,
-                    "events_lost": 0},
-        "kafka": {"group": "pathway-ohlcv-1m", "lag_total": 6, "log_end_total": 100,
-                  "produce_per_sec": 40.0},
+        "binance": {
+            "events_received_total": 100,
+            "events_published_total": 100,
+            "events_invalid_total": 0,
+            "publish_failures_total": 0,
+            "dlq_write_failures_total": 0,
+            "events_lost": 0,
+        },
+        "kafka": {
+            "group": "pathway-ohlcv-1m-v2",
+            "lag_total": 6,
+            "log_end_total": 100,
+            "produce_per_sec": 40.0,
+        },
         "db": {"news_1h": 10, "candles_10m": 50, "newest_candle_age_min": 2.0},
     }
     for section, values in over.items():
@@ -47,9 +57,7 @@ def test_evaluate_fires_each_rule():
 
 
 def test_evaluate_skips_rule_when_section_errored():
-    alerts = evaluate(
-        _metrics(binance={"error": "x"}, kafka={"error": "y"}), env={}
-    )
+    alerts = evaluate(_metrics(binance={"error": "x"}, kafka={"error": "y"}), env={})
     assert not any("events_lost" in a or "lag_total" in a for a in alerts)
 
 
@@ -59,7 +67,10 @@ def test_evaluate_db_unreachable():
 
 
 def test_evaluate_env_override():
-    assert evaluate(_metrics(db={"candles_10m": 5}), env={"ALERT_MIN_CANDLES_10M": "1"}) == []
+    assert (
+        evaluate(_metrics(db={"candles_10m": 5}), env={"ALERT_MIN_CANDLES_10M": "1"})
+        == []
+    )
 
 
 def test_checks_have_actions():
@@ -82,7 +93,7 @@ def test_kafka_group_parses_describe():
 
     fake = (
         "GROUP TOPIC PARTITION CURRENT-OFFSET LOG-END-OFFSET LAG CONSUMER-ID\n"
-        "pathway-ohlcv-1m crypto.trades 0 100 110 10 host/id\n"
+        "pathway-ohlcv-1m-v2 crypto.trades.v2 0 100 110 10 host/id\n"
     )
     proc = MagicMock()
     proc.returncode = 0

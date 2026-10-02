@@ -20,6 +20,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY dagster_project ./dagster_project
 COPY streaming ./streaming
+COPY ingestion ./ingestion
 COPY workspace.yaml ./workspace.yaml
 COPY config ./config
 

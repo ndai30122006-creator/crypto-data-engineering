@@ -1,4 +1,5 @@
 """Unit tests cho streaming windows + sink + engine metrics (offline)."""
+
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -17,23 +18,59 @@ def test_bucket_start():
 
 def test_aggregate_ohlcv():
     trades = [
-        {"symbol": "BTCUSDT", "price": 100.0, "quantity": 1.0, "timestamp": 1789363000000},
-        {"symbol": "BTCUSDT", "price": 110.0, "quantity": 2.0, "timestamp": 1789363030000},
-        {"symbol": "BTCUSDT", "price": 105.0, "quantity": 1.0, "timestamp": 1789363060000},
+        {
+            "symbol": "BTCUSDT",
+            "trade_id": 1,
+            "price": 100.0,
+            "quantity": 1.0,
+            "timestamp": 1789363000000,
+        },
+        {
+            "symbol": "BTCUSDT",
+            "trade_id": 2,
+            "price": 110.0,
+            "quantity": 2.0,
+            "timestamp": 1789363030000,
+        },
+        {
+            "symbol": "BTCUSDT",
+            "trade_id": 3,
+            "price": 105.0,
+            "quantity": 1.0,
+            "timestamp": 1789363060000,
+        },
     ]
     rows = aggregate(trades)
     assert len(rows) == 2
     first, second = rows
-    assert (first["open"], first["close"], first["volume"], first["trade_count"]) == (100.0, 100.0, 1.0, 1)
+    assert (first["open"], first["close"], first["volume"], first["trade_count"]) == (
+        100.0,
+        100.0,
+        1.0,
+        1,
+    )
     assert second["open"] == 110.0 and second["close"] == 105.0
-    assert (second["high"], second["low"], second["volume"], second["trade_count"]) == (110.0, 105.0, 3.0, 2)
+    assert (second["high"], second["low"], second["volume"], second["trade_count"]) == (
+        110.0,
+        105.0,
+        3.0,
+        2,
+    )
 
 
 def test_to_row_converts_window():
     row = to_row(
-        {"symbol": "BTC", "window_start": 1789363020, "open": 1.0, "high": 2.0,
-         "low": 0.5, "close": 1.5, "volume": 3.0, "trade_count": 2,
-         "price_change_1m": None}
+        {
+            "symbol": "BTC",
+            "window_start": 1789363020,
+            "open": 1.0,
+            "high": 2.0,
+            "low": 0.5,
+            "close": 1.5,
+            "volume": 3.0,
+            "trade_count": 2,
+            "price_change_1m": None,
+        }
     )
     assert row[0] == "BTC"
     assert row[1] == datetime.fromtimestamp(1789363020, tz=UTC)
@@ -44,10 +81,22 @@ def test_upsert_candles_sql():
     conn, cur = MagicMock(), MagicMock()
     conn.__enter__.return_value = conn
     conn.cursor.return_value.__enter__.return_value = cur
-    n = upsert_candles(conn, [
-        {"symbol": "B", "window_start": 1, "open": 1.0, "high": 1.0, "low": 1.0,
-         "close": 1.0, "volume": 1.0, "trade_count": 1, "price_change_1m": None}
-    ])
+    n = upsert_candles(
+        conn,
+        [
+            {
+                "symbol": "B",
+                "window_start": 1,
+                "open": 1.0,
+                "high": 1.0,
+                "low": 1.0,
+                "close": 1.0,
+                "volume": 1.0,
+                "trade_count": 1,
+                "price_change_1m": None,
+            }
+        ],
+    )
     assert n == 1
     sql = cur.execute.call_args[0][0]
     assert "ON CONFLICT (symbol, window_start) DO UPDATE" in sql
@@ -61,27 +110,59 @@ def test_upsert_counters_and_failure():
     conn, cur = MagicMock(), MagicMock()
     conn.__enter__.return_value = conn
     conn.cursor.return_value.__enter__.return_value = cur
-    upsert_candles(conn, [
-        {"symbol": "B", "window_start": 1, "open": 1.0, "high": 1.0, "low": 1.0,
-         "close": 1.0, "volume": 1.0, "trade_count": 1, "price_change_1m": None}
-    ])
+    upsert_candles(
+        conn,
+        [
+            {
+                "symbol": "B",
+                "window_start": 1,
+                "open": 1.0,
+                "high": 1.0,
+                "low": 1.0,
+                "close": 1.0,
+                "volume": 1.0,
+                "trade_count": 1,
+                "price_change_1m": None,
+            }
+        ],
+    )
     snap = snapshot_metrics()
     assert snap["sink_upserted_total"] == 1
     assert snap["last_sink_latency_s"] >= 0.0
     cur.execute.side_effect = RuntimeError("db down")
     with pytest.raises(RuntimeError):
-        upsert_candles(conn, [
-            {"symbol": "B", "window_start": 1, "open": 1.0, "high": 1.0, "low": 1.0,
-             "close": 1.0, "volume": 1.0, "trade_count": 1, "price_change_1m": None}
-        ])
+        upsert_candles(
+            conn,
+            [
+                {
+                    "symbol": "B",
+                    "window_start": 1,
+                    "open": 1.0,
+                    "high": 1.0,
+                    "low": 1.0,
+                    "close": 1.0,
+                    "volume": 1.0,
+                    "trade_count": 1,
+                    "price_change_1m": None,
+                }
+            ],
+        )
     assert snapshot_metrics()["sink_failures_total"] == 1
     reset_metrics()
 
 
 def _candle():
-    return {"symbol": "B", "window_start": 60, "open": 1.0, "high": 2.0,
-            "low": 0.5, "close": 1.5, "volume": 3.0, "trade_count": 2,
-            "price_change_1m": None}
+    return {
+        "symbol": "B",
+        "window_start": 60,
+        "open": 1.0,
+        "high": 2.0,
+        "low": 0.5,
+        "close": 1.5,
+        "volume": 3.0,
+        "trade_count": 2,
+        "price_change_1m": None,
+    }
 
 
 def test_write_retry_then_success():
@@ -115,14 +196,17 @@ def test_write_gives_up_to_dlq_and_raises(tmp_path):
     lines = Path(dlq).read_bytes().splitlines()
     assert len(lines) == 1
     saved = orjson.loads(lines[0])
-    assert saved["symbol"] == "B" and "dlq_reason" in saved
+    assert saved["payload"]["symbol"] == "B" and saved["kind"] == "candle"
+    assert saved["payload"]["updated_at"]
 
 
 def test_engine_note_db_merges_sink_stats():
     engine_metrics.reset()
     engine_metrics.note_db({"sink_upserted_total": 7, "sink_failures_total": 0})
-    assert engine_metrics.snapshot()["db"] == {"sink_upserted_total": 7,
-                                               "sink_failures_total": 0}
+    assert engine_metrics.snapshot()["db"] == {
+        "sink_upserted_total": 7,
+        "sink_failures_total": 0,
+    }
     engine_metrics.reset()
 
 

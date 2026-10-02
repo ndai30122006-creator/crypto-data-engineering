@@ -4,7 +4,13 @@ Cùng 1 spec với engine Pathway trong pathway_pipeline.py — dùng để
 unit-test logic và đối chiếu kết quả live.
 Bucket = epoch_seconds // 60 * 60 (UTC).
 """
+
 WINDOW_SECONDS = 60
+
+
+def order_key(timestamp: int, trade_id: int) -> str:
+    """Sortable event order without using the price as a tie breaker."""
+    return f"{timestamp:015d}:{trade_id:020d}"
 
 
 def bucket_start(ts_ms: int, window_seconds: int = WINDOW_SECONDS) -> int:
@@ -20,12 +26,19 @@ def aggregate(trades: list[dict], window_seconds: int = WINDOW_SECONDS) -> list[
     (cần nến trước — ở đây để None).
     """
     buckets: dict[tuple[str, int], list[dict]] = {}
+    seen: dict[tuple[str, int], dict] = {}
     for t in trades:
+        identity = (t["symbol"], t["trade_id"])
+        if identity in seen:
+            if seen[identity] != t:
+                raise ValueError(f"conflicting payload for trade {identity}")
+            continue
+        seen[identity] = t
         key = (t["symbol"], bucket_start(t["timestamp"], window_seconds))
         buckets.setdefault(key, []).append(t)
     rows = []
     for (symbol, start), ts in sorted(buckets.items()):
-        ordered = sorted(ts, key=lambda t: t["timestamp"])
+        ordered = sorted(ts, key=lambda t: (t["timestamp"], t["trade_id"]))
         prices = [t["price"] for t in ordered]
         rows.append(
             {

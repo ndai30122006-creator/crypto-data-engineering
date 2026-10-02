@@ -1,23 +1,26 @@
 # Plan tổng — Crypto Data Platform
 
-Training Data Engineer: batch + streaming + orchestration + storage.
+Kế hoạch hiện tại: [08-fix-upgrade.md](08-fix-upgrade.md), lập 02/10/2026
+trước khi sửa code. Bao gồm 11 findings, thiết kế v2, acceptance tests,
+rollout và nhật ký kiểm chứng. [Runbook](../docs/upgrade-runbook.md) hướng dẫn
+migration/cutover/replay chi tiết.
 
-## Roadmap
+## Các giai đoạn
 
-| Phase | Nội dung | Trạng thái | File plan |
+| Phase | Nội dung | Trạng thái hiện tại | Plan |
 |---|---|---|---|
-| 1 | News pipeline (RSS → Dagster → Postgres) | ✅ DONE, live | `01-news-pipeline.md` |
-| 2 | Market-cap snapshot job (mỗi 1 giờ) | ✅ DONE, live | `02-market-cap-snapshot.md` |
-| 3 | Binance WebSocket → Kafka (realtime) | ✅ DONE, live | `03-binance-kafka.md` |
-| 4 | Kafka → Pathway → OHLCV 1m (stream processing) | ✅ DONE, live | `04-pathway-streaming.md` |
-| 5 | Tích hợp: correlation query, data quality, milestones | ✅ query live (0 match khi thị trường yên) | `05-integration.md` |
-| 6 | Resource practice (blog Dagster Resources, P1–P4) | ✅ DONE (P5 check tay UI) | `06-resource-practice.md` |
+| 1 | News pipeline | Có code/tests; các số live trong plan gốc là lịch sử | [01](01-news-pipeline.md) |
+| 2 | Market snapshots | Có code/tests; schema rejects được sửa tại phase 8 | [02](02-market-cap-snapshot.md) |
+| 3 | Binance → Kafka | v2 có trade ID, ack accounting, durable DLQ; chờ live v2 | [03](03-binance-kafka.md) |
+| 4 | Pathway OHLCV | v2 dedupe, event-time + ID ordering; chờ Linux/live v2 | [04](04-pathway-streaming.md) |
+| 5 | Correlation và quality | Có code; query live cũ không phải nghiệm thu v2 | [05](05-integration.md) |
+| 6 | Resource practice | P1–P4 có code/tests; P5 kiểm tra UI thủ công | [06](06-resource-practice.md) |
+| 7 | Correctness/observability | Review phát hiện các lỗ hổng, sửa trong phase 8 | [07](07-session-phases.md) |
+| 8 | Fix và upgrade | Code + offline đã kiểm chứng; Linux CI/live còn chờ | [08](08-fix-upgrade.md) |
 
-Trạng thái thật của repo: xem `docs/roadmap.md` (tổng hợp, cập nhật theo code).
+Các plans 01–07 giữ mục tiêu/ghi chép lịch sử. Nhãn DONE hoặc live trong
+chúng không thay cho acceptance hiện tại; trạng thái bản mới ở phase 08.
+PRICE_SPIKE, price change 5m/15m và REST backfill nằm ngoài scope hiện tại.
 
-## Nguyên tắc phân biệt tool
-
-- **Dagster**: orchestration (việc định kỳ) — KHÔNG xử lý realtime
-- **Kafka**: message broker (đệm sự kiện) — KHÔNG tính toán
-- **Pathway**: stream processing (tính toán realtime) — KHÔNG lưu trữ lâu
-- **PostgreSQL**: persistent storage (OLTP + phân tích nhẹ) — KHÔNG phải OLAP
+Dagster orchestration batch; Kafka đệm sự kiện; Pathway xử lý stream;
+PostgreSQL lưu dữ liệu vận hành và phân tích nhẹ.

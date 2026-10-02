@@ -8,9 +8,11 @@ Symbol E2ETEST + timestamp 2025 (cũ) để không đè nến live; cleanup xóa
 sau test. Helpers dùng chung ở helpers.py. Chạy:
 $env:INTEGRATION="1"; uv run pytest tests/integration/ -q
 """
+
 import time
 
 from integration.helpers import (
+    RUN_TAG,
     T0,
     TOPIC,
     as_floats,
@@ -21,7 +23,7 @@ from integration.helpers import (
     wait_candle,
 )
 
-SYMBOL = "E2ETEST"
+SYMBOL = "E2ETEST" + RUN_TAG
 
 # 6 events cùng 1 bucket phút (10:01:01 → 10:01:50), qty 1.0 mỗi event.
 # Expected: open=100 high=105 low=98 close=103 volume=6.0 count=6.
@@ -56,27 +58,25 @@ def test_streaming_e2e_fake_to_postgres():
         expected_bucket = datetime.fromtimestamp(T0 // 1000 // 60 * 60, tz=UTC)
         assert sym == SYMBOL
         assert w_start == expected_bucket
-        # OHLC phải chính xác; volume/count dùng >= vì producer retry
-        # (kafka-python không có idempotence) có thể gửi trùng — upsert
-        # giữ OHLC đúng, chỉ count/volume phình.
+        # Exact OHLCV: transport retry và application replay không tăng count.
         assert (o, h, low, c) == (100.0, 105.0, 98.0, 103.0)
-        assert vol >= 6.0 and cnt >= len(FAKE_TRADES)
+        assert vol == 6.0 and cnt == len(FAKE_TRADES)
 
         # Step 1.5 — Idempotency: publish lại y hệt 6 events, nến không đổi.
-        baseline = (sym, w_start, o, h, low, c)
+        baseline = (sym, w_start, o, h, low, c, vol, cnt)
         _publish_all(producer)
         time.sleep(15)  # cho engine xử lý lại hết batch trùng
         row2 = wait_candle(SYMBOL, len(FAKE_TRADES))
         assert row2 is not None
-        assert as_floats(row2)[:6] == baseline, (
-            f"idempotency vỡ: {baseline} != {as_floats(row2)[:6]}"
+        assert as_floats(row2) == baseline, (
+            f"idempotency vỡ: {baseline} != {as_floats(row2)}"
         )
     finally:
         producer.close()
         cleanup(SYMBOL)
 
 
-BAD_SYMBOL = "E2EINVALID"
+BAD_SYMBOL = "E2EINVALID" + RUN_TAG
 
 
 @needs_stack
@@ -87,17 +87,30 @@ def test_streaming_e2e_invalid_events_ignored():
     try:
         # Envelope đúng JSON nhưng không phải trade, thiếu timestamp.
         producer.send(
-            TOPIC, key=BAD_SYMBOL,
+            TOPIC,
+            key=BAD_SYMBOL,
             value={"stream": "x", "data": {"e": "aggTrade", "s": BAD_SYMBOL}},
         ).get(timeout=15)
         # Thiếu price → sai schema TradeSchema.
         producer.send(
-            TOPIC, key=BAD_SYMBOL,
+            TOPIC,
+            key=BAD_SYMBOL,
             value={"symbol": BAD_SYMBOL, "quantity": 1.0, "timestamp": T0},
         ).get(timeout=15)
         producer.flush()
         row = wait_candle(BAD_SYMBOL, 1, timeout_s=25)
         assert row is None, "engine ghi nến từ event rác"
+        # A valid event after rejects must still flow through the same engine.
+        publish_trades(producer, BAD_SYMBOL, [(10.0, 1, 1.0)])
+        recovered = wait_candle(BAD_SYMBOL, 1)
+        assert recovered is not None and as_floats(recovered)[2:] == (
+            10.0,
+            10.0,
+            10.0,
+            10.0,
+            1.0,
+            1,
+        )
     finally:
         producer.close()
         cleanup(BAD_SYMBOL)

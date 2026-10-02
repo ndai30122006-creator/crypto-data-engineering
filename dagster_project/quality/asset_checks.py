@@ -4,6 +4,7 @@ Check chạy sau asset materialize, hiện kết quả trên UI (tab Checks).
 Lỗi dữ liệu → check đỏ + log, nhưng không chặn pipeline (non-blocking);
 muốn chặn thì thêm blocking=True.
 """
+
 from dagster import (
     AssetCheckResult,
     AssetCheckSeverity,
@@ -74,27 +75,36 @@ def news_count_and_schema(cleaned_news: list[dict]) -> AssetCheckResult:
 
 
 @asset_check(asset=fetch_market, description="14+15. Đủ coin + đúng schema RawMarket")
-def market_count_and_schema(fetch_market: list[dict]) -> AssetCheckResult:
+def market_count_and_schema(fetch_market: dict) -> AssetCheckResult:
     # max 500 để dư chỗ nếu tăng per_page (hiện 50), min 10 bắt API rỗng/lỗi.
-    return _combined(
+    records = fetch_market["valid"]
+    result = _combined(
         "market",
         {
-            "count": check_row_count(len(fetch_market), min_count=10, max_count=500),
-            "schema": check_schema(fetch_market, RawMarket),
-            "nulls": check_nulls(fetch_market, ["symbol", "price"]),
+            "count": check_row_count(len(records), min_count=10, max_count=500),
+            "schema": check_schema(records, RawMarket),
+            "nulls": check_nulls(records, ["symbol", "price"]),
         },
+    )
+    return AssetCheckResult(
+        passed=result.passed and not fetch_market["errors"],
+        description=result.description,
+        metadata={**result.metadata, "schema_rejects": len(fetch_market["errors"])},
+        severity=AssetCheckSeverity.ERROR,
     )
 
 
 @asset_check(asset=fetch_market, description="16. Metrics snapshot cho UI/log")
-def market_metrics(fetch_market: list[dict]) -> AssetCheckResult:
-    priced = sum(1 for c in fetch_market if isinstance(c.get("price"), (int, float)))
+def market_metrics(fetch_market: dict) -> AssetCheckResult:
+    records = fetch_market["valid"]
+    priced = sum(1 for c in records if isinstance(c.get("price"), (int, float)))
     return AssetCheckResult(
         passed=True,
         description="metrics only",
         metadata={
-            "coins": len(fetch_market),
+            "coins": len(records),
             "priced": priced,
-            "missing_price": len(fetch_market) - priced,
+            "missing_price": len(records) - priced,
+            "schema_rejects": len(fetch_market["errors"]),
         },
     )

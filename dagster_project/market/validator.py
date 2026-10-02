@@ -1,5 +1,7 @@
 """Rules kiểm tra + tách valid/errors (bad-record pattern)."""
 
+import math
+
 
 def validate_record(record: dict) -> str | None:
     """Trả về None nếu OK, ngược lại trả về lý do lỗi."""
@@ -8,9 +10,13 @@ def validate_record(record: dict) -> str | None:
     price = record.get("price")
     if price is None:
         return "missing price"
+    if not math.isfinite(price):
+        return "non-finite price"
     if price <= 0:
         return f"price <= 0 ({price})"
     market_cap = record.get("market_cap")
+    if market_cap is not None and not math.isfinite(market_cap):
+        return "non-finite market_cap"
     if market_cap is not None and market_cap <= 0:
         return f"market_cap <= 0 ({market_cap})"
     return None
@@ -25,7 +31,5 @@ def validate(records: list[dict]) -> tuple[list[dict], list[dict]]:
         if reason is None:
             valid.append(record)
         else:
-            errors.append(
-                {"pipeline": "market", "payload": record, "error": reason}
-            )
+            errors.append({"pipeline": "market", "payload": record, "error": reason})
     return valid, errors

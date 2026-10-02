@@ -1,6 +1,8 @@
 """Step 2.4 — regression event-time: out-of-order, late, duplicate,
 multiple symbols. Engine live + DB thật, skip khi thiếu infra."""
+
 from integration.helpers import (
+    RUN_TAG,
     as_floats,
     cleanup,
     make_producer,
@@ -13,7 +15,7 @@ from integration.helpers import (
 @needs_stack
 def test_out_of_order_events():
     """Arrival A→B→C nhưng event-time C→A→B: nến đúng theo event-time."""
-    sym = "E2ETO"
+    sym = "E2ETO" + RUN_TAG
     trades = [(105.0, 10, 1.0), (98.0, 20, 1.0), (100.0, 5, 1.0)]  # A, B, C
     cleanup(sym)
     producer = make_producer()
@@ -31,7 +33,7 @@ def test_out_of_order_events():
 @needs_stack
 def test_late_event():
     """Nến đã có, event muộn tới sau: high/low/volume/count update, open giữ."""
-    sym = "E2ETL"
+    sym = "E2ETL" + RUN_TAG
     cleanup(sym)
     producer = make_producer()
     try:
@@ -43,7 +45,7 @@ def test_late_event():
         assert row is not None, "nến không update sau late event"
         _, _, o, h, low, c, vol, cnt = as_floats(row)
         assert o == 100.0 and (h, low, c) == (105.0, 90.0, 90.0)
-        assert vol >= 4.0 and cnt >= 3
+        assert vol == 4.0 and cnt == 3
     finally:
         producer.close()
         cleanup(sym)
@@ -52,7 +54,7 @@ def test_late_event():
 @needs_stack
 def test_duplicate_event():
     """Publish lại y hệt: OHLC không đổi (upsert idempotent)."""
-    sym = "E2ETD"
+    sym = "E2ETD" + RUN_TAG
     trades = [(100.0, 1, 1.0), (110.0, 9, 1.0)]
     cleanup(sym)
     producer = make_producer()
@@ -60,14 +62,14 @@ def test_duplicate_event():
         publish_trades(producer, sym, trades)
         row = wait_candle(sym, len(trades))
         assert row is not None
-        baseline = as_floats(row)[2:6]
+        baseline = as_floats(row)[2:]
         publish_trades(producer, sym, trades)  # trùng y hệt
         import time
 
         time.sleep(15)  # cho engine xử lý lại hết batch trùng
         row = wait_candle(sym, len(trades))
         assert row is not None
-        assert as_floats(row)[2:6] == baseline
+        assert as_floats(row)[2:] == baseline
     finally:
         producer.close()
         cleanup(sym)
@@ -76,7 +78,7 @@ def test_duplicate_event():
 @needs_stack
 def test_multiple_symbols():
     """2 symbols đan xen arrival: mỗi nến đúng riêng, không lẫn nhau."""
-    s1, s2 = "E2ETM1", "E2ETM2"
+    s1, s2 = "E2ETM1" + RUN_TAG, "E2ETM2" + RUN_TAG
     cleanup(s1)
     cleanup(s2)
     producer = make_producer()

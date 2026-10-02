@@ -6,3 +6,10 @@ pgdata/
 tests/
 .venv/
 uv-cache/
+.tools/
+.dlq/
+.pytest_cache/
+.ruff_cache/
+dagster_home/
+.agents/
+.codex/

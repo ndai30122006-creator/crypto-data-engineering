@@ -3,8 +3,10 @@
 Nguồn (không thêm tech): log containers (docker logs --since) + DB.
 Chạy: uv run python scripts/metrics.py [--minutes 60]
 """
+
 import datetime
 import json
+import os
 import subprocess
 import sys
 
@@ -15,7 +17,10 @@ def _docker_logs(name: str, since: str) -> str:
     try:
         proc = subprocess.run(
             ["docker", "logs", f"--since={since}", name],
-            capture_output=True, text=True, timeout=30, check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -28,9 +33,11 @@ def pathway_engine() -> dict:
 
     try:
         proc = subprocess.run(
-            ["docker", "exec", "crypto-pathway",
-             "cat", "/tmp/pathway-metrics.json"],
-            capture_output=True, text=True, timeout=15, check=False,
+            ["docker", "exec", "crypto-pathway", "cat", "/tmp/pathway-metrics.json"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return {"error": f"docker exec lỗi: {exc}"}
@@ -49,9 +56,17 @@ def binance_consumer() -> dict:
     """
     try:
         proc = subprocess.run(
-            ["docker", "exec", "crypto-binance-consumer",
-             "cat", "/tmp/binance-metrics.json"],
-            capture_output=True, text=True, timeout=15, check=False,
+            [
+                "docker",
+                "exec",
+                "crypto-binance-consumer",
+                "cat",
+                "/tmp/binance-metrics.json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return {"error": f"docker exec lỗi: {exc}"}
@@ -61,30 +76,44 @@ def binance_consumer() -> dict:
         data = json.loads(proc.stdout)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         return {"error": f"metrics file hỏng: {exc}"}
-    accounted = (data.get("events_published_total", 0)
-                 + data.get("events_invalid_total", 0)
-                 + data.get("publish_failures_total", 0))
+    accounted = (
+        data.get("events_published_total", 0)
+        + data.get("events_invalid_total", 0)
+        + data.get("publish_failures_total", 0)
+        + data.get("events_pending", 0)
+    )
     data["events_lost"] = data.get("events_received_total", 0) - accounted
     return data
 
 
-def kafka_group(group: str = "pathway-ohlcv-1m") -> dict:
+def kafka_group(group: str | None = None) -> dict:
     """Lag + log-end offsets của consumer group (lag = khoảng cách producer-consumer)."""
     import subprocess
 
+    group = group or os.getenv("KAFKA_GROUP_ID", "pathway-ohlcv-1m-v2")
     try:
         proc = subprocess.run(
-            ["docker", "exec", "crypto-kafka",
-             "/opt/kafka/bin/kafka-consumer-groups.sh",
-             "--bootstrap-server", "localhost:9092",
-             "--describe", "--group", group],
-            capture_output=True, text=True, timeout=30, check=False,
+            [
+                "docker",
+                "exec",
+                "crypto-kafka",
+                "/opt/kafka/bin/kafka-consumer-groups.sh",
+                "--bootstrap-server",
+                "localhost:9092",
+                "--describe",
+                "--group",
+                group,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return {"error": f"docker exec lỗi: {exc}"}
     if proc.returncode != 0:
         return {"error": "describe group thất bại (group chưa tồn tại?)"}
-    lag_total, end_total = 0, 0
+    lag_total, end_total, partitions = 0, 0, 0
     for line in proc.stdout.splitlines():
         parts = line.split()
         # Dòng dữ liệu: GROUP TOPIC PARTITION CURRENT-OFFSET LOG-END-OFFSET LAG ...
@@ -92,8 +121,11 @@ def kafka_group(group: str = "pathway-ohlcv-1m") -> dict:
             try:
                 end_total += int(parts[4])
                 lag_total += int(parts[5])
+                partitions += 1
             except ValueError:
                 continue
+    if not partitions:
+        return {"group": group, "error": "no committed partition offsets available"}
     return {"group": group, "lag_total": lag_total, "log_end_total": end_total}
 
 
@@ -110,7 +142,9 @@ def kafka_rate(end_total: int) -> float | None:
     except (OSError, ValueError):
         prev = None
     try:
-        state_file.write_text(json.dumps({"end": end_total, "ts": now}), encoding="utf-8")
+        state_file.write_text(
+            json.dumps({"end": end_total, "ts": now}), encoding="utf-8"
+        )
     except OSError:
         pass
     if not prev or now - prev.get("ts", now) < 1:
@@ -124,8 +158,9 @@ def dagster_runs(since: str = "60m") -> dict:
     logs += _docker_logs("crypto-dagster-code", since)
     return {
         "success": logs.count("RUN_SUCCESS"),
-        "failed": logs.count("RUN_FAILURE") + logs.count("STEP_FAILURE")
-                  + logs.count("DagsterLaunchFailedError"),
+        "failed": logs.count("RUN_FAILURE")
+        + logs.count("STEP_FAILURE")
+        + logs.count("DagsterLaunchFailedError"),
     }
 
 
@@ -137,7 +172,9 @@ def db_stats() -> dict:
         return {"error": "missing psycopg2"}
     import os
 
-    url = os.getenv("DATABASE_URL", "postgresql://admin:secret@localhost:5432/crypto_db")
+    url = os.getenv(
+        "DATABASE_URL", "postgresql://admin:secret@localhost:5432/crypto_db"
+    )
     # Bảng env-suffix như PostgresResource.table() (local → *_local).
     env = os.getenv("DAGSTER_ENVIRONMENT", "local")
     suffix = "" if env == "prod" else f"_{env}"
@@ -171,12 +208,6 @@ def db_stats() -> dict:
             snapshots_total = cur.fetchone()[0]
             cur.execute(f"SELECT count(*) FROM {t_err};")
             errors_total = cur.fetchone()[0]
-            cur.execute("SELECT count(*) FROM market_1m;")
-            candles_total = cur.fetchone()[0]
-            cur.execute("SELECT count(*) FROM crypto_market_snapshot_local;")
-            snapshots_total = cur.fetchone()[0]
-            cur.execute("SELECT count(*) FROM data_quality_errors_local;")
-            errors_total = cur.fetchone()[0]
         query_latency = round(
             datetime.datetime.now(datetime.UTC).timestamp() - query_started, 3
         )
@@ -186,7 +217,8 @@ def db_stats() -> dict:
         conn.close()
     age_min = (
         (datetime.datetime.now(datetime.UTC) - newest).total_seconds() / 60
-        if newest else None
+        if newest
+        else None
     )
     return {
         "news_total": news_total,

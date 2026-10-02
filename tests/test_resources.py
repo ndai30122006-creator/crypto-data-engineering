@@ -3,6 +3,7 @@
 Vì sao mock: test logic của mình, không test hạ tầng.
 Chạy offline trong <1s thay vì dựng Postgres + gọi API thật.
 """
+
 from datetime import UTC
 from unittest.mock import MagicMock, patch
 
@@ -82,9 +83,7 @@ def test_table_names_per_env():
 def test_insert_news_sql_uses_env_table():
     """Mock psycopg2: assert SQL đúng bảng + có upsert, không cần DB thật."""
     pg = PostgresResource(conn_str="dummy", env="local")
-    with patch(
-        "dagster_project.resources.postgres.psycopg2.connect"
-    ) as mock_connect:
+    with patch("dagster_project.resources.postgres.psycopg2.connect") as mock_connect:
         mock_cur = MagicMock()
         mock_conn = MagicMock()
         mock_conn.__enter__.return_value = mock_conn
@@ -94,9 +93,7 @@ def test_insert_news_sql_uses_env_table():
 
         assert pg.insert_news([SAMPLE_ARTICLE]) == 1
 
-        statements = " ".join(
-            call.args[0] for call in mock_cur.execute.call_args_list
-        )
+        statements = " ".join(call.args[0] for call in mock_cur.execute.call_args_list)
         assert "crypto_news_local" in statements  # bảng theo env
         assert "CREATE TABLE IF NOT EXISTS" in statements  # ensure_tables
         assert "ON CONFLICT (url) DO NOTHING" in statements  # upsert
@@ -108,9 +105,7 @@ def test_insert_counters_and_failure():
 
     reset_metrics()
     pg = PostgresResource(conn_str="dummy", env="local")
-    with patch(
-        "dagster_project.resources.postgres.psycopg2.connect"
-    ) as mock_connect:
+    with patch("dagster_project.resources.postgres.psycopg2.connect") as mock_connect:
         mock_cur = MagicMock()
         mock_conn = MagicMock()
         mock_conn.__enter__.return_value = mock_conn
@@ -149,7 +144,8 @@ def test_fetch_market_with_mock_api():
     from dagster_project.assets.market_assets import validate_market
 
     fetched = fetch_market(make_context(), MockCoinGecko())
-    assert len(fetched) == 2  # msgspec chỉ loại sai kiểu, không loại sai business
+    assert len(fetched["valid"]) == 2
+    assert fetched["errors"] == []
 
     split = validate_market(make_context(), fetched)
     assert len(split["valid"]) == 1
@@ -178,9 +174,7 @@ def test_loaded_snapshot_writes_errors_to_mock():
                     "price_change_24h": 1.0,
                 }
             ],
-            "errors": [
-                {"pipeline": "market", "payload": "{}", "error": "price <= 0"}
-            ],
+            "errors": [{"pipeline": "market", "payload": "{}", "error": "price <= 0"}],
         },
     )
     assert result == 1

@@ -1,18 +1,19 @@
-"""Sink Postgres cho market_1m: ensure schema + upsert idempotent.
+"""Version-aware candle upserts and durable recovery after bounded retries."""
 
-Upsert theo PK (symbol, window_start): replay Kafka / restart engine
-đều idempotent. Counters module cho metrics (thấy ở engine dump).
-"""
 import time
 from datetime import UTC, datetime
 
-import orjson
+import psycopg2
+
+from ingestion.dlq import append_record
 
 _counters = {
     "sink_upserted_total": 0,
     "sink_failures_total": 0,
     "last_sink_latency_s": 0.0,
     "max_sink_latency_s": 0.0,
+    "dlq_saved_total": 0,
+    "dlq_failures_total": 0,
 }
 
 
@@ -24,6 +25,7 @@ def reset_metrics() -> None:
     for key in _counters:
         _counters[key] = 0.0 if key.endswith("_s") else 0
 
+
 DDL_MARKET_1M = """
 CREATE TABLE IF NOT EXISTS market_1m (
     symbol VARCHAR(20),
@@ -33,24 +35,30 @@ CREATE TABLE IF NOT EXISTS market_1m (
     volume NUMERIC(30,12),
     trade_count INTEGER,
     price_change_1m NUMERIC(10,4),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (symbol, window_start)
 );
 """
 
 UPSERT_1M = """
 INSERT INTO market_1m
-    (symbol, window_start, open, high, low, close, volume, trade_count, price_change_1m)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+    (symbol, window_start, open, high, low, close, volume, trade_count, price_change_1m, updated_at)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (symbol, window_start) DO UPDATE SET
     open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
     close = EXCLUDED.close, volume = EXCLUDED.volume,
-    trade_count = EXCLUDED.trade_count, price_change_1m = EXCLUDED.price_change_1m;
+    trade_count = EXCLUDED.trade_count, price_change_1m = EXCLUDED.price_change_1m,
+    updated_at = EXCLUDED.updated_at
+WHERE market_1m.updated_at <= EXCLUDED.updated_at;
 """
 
 
 def ensure_tables(conn) -> None:
     with conn, conn.cursor() as cur:
         cur.execute(DDL_MARKET_1M)
+        cur.execute(
+            "ALTER TABLE market_1m ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();"
+        )
 
 
 def to_row(candle: dict) -> tuple:
@@ -65,30 +73,51 @@ def to_row(candle: dict) -> tuple:
         candle["volume"],
         candle["trade_count"],
         candle.get("price_change_1m"),
+        datetime.fromisoformat(candle["updated_at"])
+        if candle.get("updated_at")
+        else datetime.now(UTC),
     )
 
 
 def write_candle_with_retry(
-    conn, candle: dict, retries: int = 3, dlq_path: str | None = None
-) -> None:
+    conn, candle: dict, retries: int = 3, dlq_path: str | None = None, connect=None
+) -> object:
     """Step 4.4 — Postgres chết: retry backoff, hết retry thì ghi DLQ file
     rồi raise (fail to, có dấu vết) — không bao giờ im lặng mất data."""
     last_error: Exception | None = None
+    candle = {
+        **candle,
+        "updated_at": candle.get("updated_at") or datetime.now(UTC).isoformat(),
+    }
     for attempt in range(max(1, retries)):
         try:
+            if connect is not None and (conn is None or conn.closed):
+                conn = connect()
             upsert_candles(conn, [candle])
-            return
+            return conn
         except Exception as exc:  # noqa: BLE001 - retry mọi lỗi DB thoáng qua
             last_error = exc
-            time.sleep(2**attempt)
+            if connect is not None and isinstance(
+                exc, (psycopg2.OperationalError, psycopg2.InterfaceError)
+            ):
+                if conn is not None:
+                    conn.close()
+                conn = None
+            if attempt + 1 < max(1, retries):
+                time.sleep(2**attempt)
     if dlq_path:
         try:
-            with open(dlq_path, "ab") as f:
-                f.write(orjson.dumps({**candle, "dlq_reason": str(last_error)}))
-                f.write(b"\n")
-        except OSError:
-            pass
-    raise RuntimeError(f"sink failed after {retries} retries: {last_error}") from last_error
+            append_record(dlq_path, "candle", candle, type(last_error).__name__)
+            _counters["dlq_saved_total"] += 1
+        except OSError as dlq_error:
+            _counters["dlq_failures_total"] += 1
+            raise RuntimeError(
+                f"sink failed; DLQ write failed: {type(dlq_error).__name__}"
+            ) from dlq_error
+    destination = "saved to DLQ" if dlq_path else "DLQ disabled"
+    raise RuntimeError(
+        f"sink failed after {retries} retries ({destination}): {type(last_error).__name__}"
+    ) from last_error
 
 
 def upsert_candles(conn, candles: list[dict]) -> int:
@@ -106,5 +135,7 @@ def upsert_candles(conn, candles: list[dict]) -> int:
     latency = time.time() - started
     _counters["sink_upserted_total"] += len(candles)
     _counters["last_sink_latency_s"] = round(latency, 3)
-    _counters["max_sink_latency_s"] = round(max(_counters["max_sink_latency_s"], latency), 3)
+    _counters["max_sink_latency_s"] = round(
+        max(_counters["max_sink_latency_s"], latency), 3
+    )
     return len(candles)

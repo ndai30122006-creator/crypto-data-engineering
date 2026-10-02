@@ -3,9 +3,11 @@
 Symbol + timestamp 2025 (cũ) để không đè nến live; mỗi test tự cleanup
 symbol của mình. Skip toàn bộ khi thiếu INTEGRATION=1 hoặc infra.
 """
+
 import os
 import socket
 import time
+import uuid
 
 import orjson
 import pytest
@@ -15,7 +17,8 @@ KAFKA_BOOTSTRAP = os.getenv("TEST_KAFKA_BOOTSTRAP", "localhost:29092")
 DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL", "postgresql://admin:secret@localhost:5432/crypto_db"
 )
-TOPIC = "crypto.trades"
+TOPIC = os.getenv("TEST_KAFKA_TOPIC", "crypto.trades.v2")
+RUN_TAG = uuid.uuid4().hex[:6].upper()
 
 # 1 bucket phút 2025: mọi test symbol khác nhau nên không đụng nhau.
 T0 = 1757578861000
@@ -72,13 +75,21 @@ def make_producer():
     )
 
 
-def publish_trades(producer, symbol: str, trades: list[tuple[float, int, float]]) -> None:
+def publish_trades(
+    producer, symbol: str, trades: list[tuple[float, int, float]]
+) -> None:
     """Publish list (price, offset_s, qty); mỗi send .get() giữ thứ tự arrival."""
     for price, offset_s, qty in trades:
         producer.send(
-            TOPIC, key=symbol,
-            value={"symbol": symbol, "price": price,
-                   "quantity": qty, "timestamp": T0 + offset_s * 1000},
+            TOPIC,
+            key=symbol,
+            value={
+                "symbol": symbol,
+                "trade_id": offset_s,
+                "price": price,
+                "quantity": qty,
+                "timestamp": T0 + offset_s * 1000,
+            },
         ).get(timeout=15)
     producer.flush()
 
@@ -101,10 +112,19 @@ def wait_candle(symbol: str, min_count: int, timeout_s: float = 60):
             conn.close()
         if row and row[7] >= min_count:
             return row
+        time.sleep(0.2)
     return None
 
 
 def as_floats(row) -> tuple:
     """Row DB → (symbol, window_start, o, h, low, c, vol, cnt)."""
-    return (row[0], row[1], float(row[2]), float(row[3]),
-            float(row[4]), float(row[5]), float(row[6]), row[7])
+    return (
+        row[0],
+        row[1],
+        float(row[2]),
+        float(row[3]),
+        float(row[4]),
+        float(row[5]),
+        float(row[6]),
+        row[7],
+    )

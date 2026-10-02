@@ -4,6 +4,8 @@ HEALTH (containers) + METRIC (collect) + FLOW (kafka) + DATA (db) + ALERT.
 Chạy: uv run python scripts/status.py [--json]
 Exit 0 xanh hết, 1 có đỏ (khớp alert.py).
 """
+
+import math
 import subprocess
 import sys
 
@@ -17,6 +19,7 @@ CONTAINERS = [
     ("PostgreSQL", "crypto-postgres"),
     ("Kafka", "crypto-kafka"),
     ("Dagster", "crypto-dagster-webserver"),
+    ("Dagster Code", "crypto-dagster-code"),
     ("Dagster Daemon", "crypto-dagster-daemon"),
     ("Binance Consumer", "crypto-binance-consumer"),
     ("Pathway", "crypto-pathway"),
@@ -26,12 +29,18 @@ CONTAINERS = [
 def container_health() -> dict[str, str]:
     """Tên hiển thị → 'healthy'/'starting'/... (lỗi docker → 'unknown')."""
     try:
-        out = subprocess.run(
+        proc = subprocess.run(
             ["docker", "ps", "--format", "{{.Names}}|{{.Status}}"],
-            capture_output=True, text=True, timeout=15, check=False,
-        ).stdout
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
     except (OSError, subprocess.SubprocessError):
         return {}
+    if proc.returncode != 0:
+        return {}
+    out = proc.stdout
     running = {}
     for line in out.splitlines():
         if "|" in line:
@@ -40,7 +49,9 @@ def container_health() -> dict[str, str]:
     health = {}
     for label, name in CONTAINERS:
         status = running.get(name, "missing")
-        if "healthy" in status:
+        if "(unhealthy)" in status:
+            health[label] = "unhealthy"
+        elif "(healthy)" in status:
             health[label] = "ok"
         elif status.startswith("Up"):
             health[label] = "starting"
@@ -54,7 +65,7 @@ def _fmt_int(value) -> str:
 
 
 def _fmt_age(age_min) -> str:
-    if age_min is None:
+    if not isinstance(age_min, (int, float)) or not math.isfinite(age_min):
         return "n/a"
     if age_min < 1:
         return f"{age_min * 60:.0f} sec"
@@ -111,17 +122,29 @@ def render(metrics: dict, health: dict[str, str]) -> tuple[str, int]:
         failed += 1
     if isinstance(dagster, dict):
         _flow("Dagster Failed", _fmt_int(dagster.get("failed")))
-        if (dagster.get("failed") or 0) > 0:
-            failed += 1
-    return "\n".join(lines), (1 if failed else 0)
+    from alert import evaluate
+
+    alerts = evaluate(metrics)
+    lines.extend(["", *alerts])
+    return "\n".join(lines), (1 if failed or alerts else 0)
 
 
 def main() -> int:
     if "--json" in sys.argv:
         import json
 
-        print(json.dumps(collect(), indent=2, default=str))
-        return 0
+        from alert import evaluate
+
+        metrics, health = collect(), container_health()
+        _, code = render(metrics, health)
+        print(
+            json.dumps(
+                {**metrics, "health": health, "alerts": evaluate(metrics)},
+                indent=2,
+                default=str,
+            )
+        )
+        return code
     metrics = collect()
     health = container_health()
     text, code = render(metrics, health)

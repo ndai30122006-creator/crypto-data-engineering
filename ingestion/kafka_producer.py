@@ -4,12 +4,13 @@ Key = symbol để cùng coin vào cùng partition (giữ thứ tự / coin).
 Delivery: errback log mọi lỗi gửi (không im lặng mất event),
 caller flush theo nhịp để đảm bảo event tới broker trước khi thoát.
 """
+
 import orjson
 from kafka import KafkaProducer
 
 from ingestion.jlog import get_logger
 
-TOPIC_TRADES = "crypto.trades"
+TOPIC_TRADES = "crypto.trades.v2"
 
 log = get_logger("kafka-producer")
 
@@ -21,12 +22,15 @@ def build_producer(bootstrap_servers: str) -> KafkaProducer:
         key_serializer=lambda k: k.encode("utf-8"),
         value_serializer=lambda v: orjson.dumps(v),
         acks="all",
+        enable_idempotence=True,
         retries=5,
         linger_ms=50,
     )
 
 
-def publish(producer: KafkaProducer, topic: str, event: dict, on_error=None):
+def publish(
+    producer: KafkaProducer, topic: str, event: dict, on_error=None, on_success=None
+):
     """Publish 1 event, key = symbol. Gắn errback log lỗi delivery.
 
     on_error(err, event): hook tùy chọn (đếm metric / ghi dead-letter).
@@ -40,4 +44,6 @@ def publish(producer: KafkaProducer, topic: str, event: dict, on_error=None):
             on_error(exc, event)
 
     future.add_errback(_failed)
+    if on_success is not None:
+        future.add_callback(lambda metadata: on_success(metadata, event))
     return future

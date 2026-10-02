@@ -1,5 +1,11 @@
 # Roadmap — Crypto Data Platform
 
+> Cập nhật 02/10/2026: trạng thái bản mới nằm ở
+> [plan 08](../plan/08-fix-upgrade.md) và [runbook](upgrade-runbook.md).
+> Phần dưới giữ ghi chép phiên bản cũ; các số live/DONE không phải bằng
+> chứng nghiệm thu v2. Code hiện có 8 assets, 6 checks, 2 jobs/schedules,
+> topic `crypto.trades.v2`, dedupe trade ID và OHLC theo `(timestamp, trade_id)`.
+
 Training Data Engineer: batch + streaming + orchestration + storage.
 Tổng hợp từ `plan/` (01–06 + README), cập nhật theo code thực tế.
 
@@ -107,10 +113,10 @@ Kafka crypto.trades ──▶ Pathway ──▶ market_1m (OHLCV)
 - `streaming/pathway_pipeline.py` — engine Pathway 0.32.1 (API đã verify trong image: `pw.io.kafka.read` + `windowby(tumbling 60s)` + `reduce` + `subscribe`): `TradeSchema` parse JSON, bucket epoch-seconds, OHLCV theo symbol.
 - `streaming/postgres_sink.py` — upsert `(symbol, window_start)` idempotent (replay/restart an toàn). `price_change_1m` để NULL — query tự tính bằng `LAG()` (stateless).
 - Service `pathway` (`Dockerfile.pathway`, uv, healthcheck process qua `/proc`).
-- Bài học E2E test bắt được: `earliest/latest` của engine theo processing-time
-  nên sai open/close khi burst — chuyển sang min/max composite key `ts|price`
-  (đúng data-time mọi thứ tự arrival). Producer kafka-python không có
-  idempotence nên test assert OHLC chính xác + volume/count `>=`.
+- Bài học cũ: `earliest/latest` theo processing-time sai khi burst. Bản cũ
+  dùng `ts|price` và nới volume/count, nhưng vẫn sai khi tie và duplicate.
+  Plan 08 sửa bằng trade ID dedupe, `(timestamp, trade_id)` ordering và
+  exact OHLCV assertions. Producer bật idempotence; application replay cần dedupe riêng.
 - Verify live: 145 nến, đủ 5 symbols, OHLC hợp lệ (BTC 77522–77549).
 - Chưa làm (giữ đúng scope): `price_change_5m/15m`, volume-spike detector trong engine.
 - Verify sau 2–3 phút: `SELECT * FROM market_1m ORDER BY window_start DESC LIMIT 5;`
@@ -118,7 +124,9 @@ Kafka crypto.trades ──▶ Pathway ──▶ market_1m (OHLCV)
 ## 12. Signals batch (VOLUME_SPIKE) ✅
 
 - `streaming/signals.py` pure: spike khi volume 5m > 3× baseline giờ (cần 65 nến/symbol).
-- Asset `detected_signals` (theo giờ, trong `market_job`): quét 70 phút → ghi bảng `signals` (UNIQUE symbol/type/window). Verify live: scan 75 nến → 0 signals (thị trường yên, đúng hành vi).
+- Asset `detected_signals` hiện đọc 125 phút, xét mọi cửa sổ 5 phút đã đóng
+  trong giờ gần nhất, ghi `signals` theo UNIQUE symbol/type/window.
+  Live cũ: scan 75 nến → 0 signals; chưa phải kiểm chứng detector mới.
 - Test `tests/test_signals.py` (5 tests: thiếu baseline, phẳng, spike, đa symbol, asset mock).
 
 ## 13. OHLCV quality wiring ✅
@@ -164,7 +172,8 @@ Thứ tự P1 → P2 → P3 → P4 → P5. Chi tiết từng practice xem `plan/
 ## 9. Event-time correctness (Phase 2) ✅
 
 - Window theo **event time** (`timestamp` Binance), không phải processing time.
-- Out-of-order/late: đúng nhờ composite key `ts|price` + upsert (xem §4 bài học).
+- Out-of-order/late bản mới: `(timestamp, trade_id)` + dedupe và upsert;
+  kiểm chứng v2 ghi tại plan 08 (không dùng tie breaker bằng giá).
 - Regression live `tests/integration/test_event_time.py`: out-of-order, late, duplicate, multiple-symbols.
 
 ## 10. E2E streaming (Phase 1) ✅

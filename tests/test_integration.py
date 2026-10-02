@@ -6,6 +6,7 @@ Mặc định SKIP hết để `pytest tests/` offline vẫn xanh.
 Host tới infra qua: Kafka localhost:29092, Postgres localhost:5432.
 Helpers dùng chung ở integration/helpers.py (tránh duplicate).
 """
+
 import orjson
 import pytest
 from integration.helpers import (
@@ -70,7 +71,7 @@ def test_consumer_pipeline_to_real_kafka():
     raw = orjson.dumps(
         {
             "stream": "btcusdt@trade",
-            "data": {"e": "trade", "s": "BTCUSDT", "p": "10", "q": "1", "T": 5},
+            "data": {"e": "trade", "t": 1, "s": "BTCUSDT", "p": "10", "q": "1", "T": 5},
         }
     ).decode()
     producer = MagicMock()
@@ -82,7 +83,11 @@ def test_consumer_pipeline_to_real_kafka():
 
     producer.send.side_effect = _fake_send
     producer.flush.return_value = None
-    cfg = {"topic": topic, "heartbeat_file": "/tmp/itest-heartbeat", "flush_every": 10**9}
+    cfg = {
+        "topic": topic,
+        "heartbeat_file": "/tmp/itest-heartbeat",
+        "flush_every": 10**9,
+    }
     on_raw_message(producer, cfg, raw)
     assert sent and sent[0]["symbol"] == "BTCUSDT"
     # Gửi thật 1 event rồi đọc lại để chứng minh topic nhận được.
@@ -118,9 +123,7 @@ def test_postgres_news_roundtrip():
 
     from dagster_project.resources.postgres import PostgresResource
 
-    pg = PostgresResource(
-        conn_str=DATABASE_URL, env="test"
-    )
+    pg = PostgresResource(conn_str=DATABASE_URL, env="test")
     article = {
         "title": "ITEST",
         "url": "https://itest.local/1",
@@ -142,3 +145,30 @@ def test_postgres_news_roundtrip():
     finally:
         conn.close()
     assert row and row[0] == "ITEST"
+
+
+@needs_pg
+def test_stale_candle_replay_cannot_overwrite_newer_version():
+    import uuid
+    from datetime import UTC, datetime, timedelta
+
+    import psycopg2
+
+    from streaming.postgres_sink import ensure_tables, upsert_candles
+
+    conn = psycopg2.connect(DATABASE_URL)
+    symbol = "VERSION" + uuid.uuid4().hex[:6].upper()
+    now = datetime.now(UTC)
+    candle = {"symbol": symbol, "window_start": 60, "open": 1, "high": 1, "low": 1,
+              "close": 1, "volume": 10, "trade_count": 1, "updated_at": now.isoformat()}
+    try:
+        ensure_tables(conn)
+        upsert_candles(conn, [candle])
+        upsert_candles(conn, [{**candle, "volume": 999, "updated_at": (now - timedelta(seconds=1)).isoformat()}])
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT volume FROM market_1m WHERE symbol = %s", (symbol,))
+            assert float(cur.fetchone()[0]) == 10.0
+    finally:
+        with conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM market_1m WHERE symbol = %s", (symbol,))
+        conn.close()

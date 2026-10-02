@@ -16,5 +16,39 @@ jobs:
         run: uv sync --frozen
       - name: Ruff
         run: uv run ruff check dagster_project ingestion streaming scripts tests
+      - name: Require real Pathway and test streaming graph (Linux)
+        run: |
+          uv run python -c "import pathway"
+          uv run pytest tests/test_pathway_graph.py -q
       - name: Pytest (offline, integration tự skip)
         run: uv run pytest tests/ -q
+      - name: Validate Dagster definitions
+        run: uv run dagster definitions validate -m dagster_project.definitions
+        env:
+          DATABASE_URL: postgresql://unused:unused@localhost:5432/unused
+          DAGSTER_ENVIRONMENT: local
+
+  streaming-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Sync deps
+        run: uv sync --frozen
+      - name: Start Kafka, Postgres and real streaming engine
+        run: docker compose up --build -d --wait --wait-timeout 180 postgres kafka pathway
+      - name: Real Kafka to Pathway to Postgres regressions
+        run: uv run pytest tests/integration/ tests/test_integration.py -q
+        env:
+          INTEGRATION: "1"
+          KAFKA_TOPIC: crypto.trades.v2
+          DATABASE_URL: postgresql://admin:secret@localhost:5432/crypto_db
+      - name: Service logs
+        if: failure()
+        run: docker compose logs --no-color --tail 150
+      - name: Stop services
+        if: always()
+        run: docker compose down

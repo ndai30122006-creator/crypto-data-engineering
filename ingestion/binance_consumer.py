@@ -2,7 +2,7 @@
 
 Chạy: python -m ingestion.binance_consumer (trong container consumer).
 Env: KAFKA_BOOTSTRAP_SERVERS (default kafka:9092),
-     KAFKA_TOPIC (default crypto.trades),
+     KAFKA_TOPIC (default crypto.trades.v2),
      SYMBOLS (comma, default BTC,ETH,BNB,SOL,XRP/USDT),
      HEARTBEAT_FILE (default /tmp/binance-consumer.heartbeat),
      FLUSH_EVERY (số event giữa 2 lần flush, default 500).
@@ -13,6 +13,7 @@ reconnect backoff, publish liên tục — Dagster chỉ orchestrate batch.
 Shutdown (SIGTERM/SIGINT từ docker stop): ngừng reconnect, đóng WS,
 flush producer (đảm bảo event đã gửi tới broker) rồi mới thoát.
 """
+
 import os
 import signal
 import threading
@@ -22,6 +23,7 @@ from pathlib import Path
 import orjson
 import websocket
 
+from ingestion.dlq import append_record
 from ingestion.events import (
     DEFAULT_SYMBOLS,
     combined_stream_url,
@@ -37,11 +39,17 @@ _current_ws: websocket.WebSocketApp | None = None
 _last_beat = 0.0
 _flushed_at = 0
 _started_at = time.time()
+_counter_lock = threading.Lock()
+_metrics_lock = threading.Lock()
 _counters = {
     "events_received_total": 0,
     "events_invalid_total": 0,
     "events_dlq_total": 0,
     "events_published_total": 0,
+    "events_enqueued_total": 0,
+    "events_pending": 0,
+    "events_delivery_dlq_total": 0,
+    "dlq_write_failures_total": 0,
     "publish_failures_total": 0,
     "reconnect_total": 0,
     "last_flush_latency_s": 0.0,
@@ -51,16 +59,27 @@ _counters = {
 
 def snapshot_metrics() -> dict:
     """Counters hiện tại + uptime (cho metrics file / status)."""
-    return {**_counters, "uptime_seconds": round(time.time() - _started_at, 1)}
+    with _counter_lock:
+        return {**_counters, "uptime_seconds": round(time.time() - _started_at, 1)}
+
+
+def _count(**changes) -> None:
+    with _counter_lock:
+        for key, delta in changes.items():
+            _counters[key] += delta
 
 
 def dump_metrics(path: str) -> bool:
     """Ghi counters ra JSON file (metrics script đọc qua docker exec)."""
-    try:
-        Path(path).write_bytes(orjson.dumps(snapshot_metrics()))
-        return True
-    except OSError:
-        return False
+    destination = Path(path)
+    temporary = destination.with_name(destination.name + ".tmp")
+    with _metrics_lock:
+        try:
+            temporary.write_bytes(orjson.dumps(snapshot_metrics()))
+            temporary.replace(destination)
+            return True
+        except OSError:
+            return False
 
 
 def beat(path: str, interval: float = 10.0, now: float | None = None) -> bool:
@@ -99,6 +118,9 @@ def load_config() -> dict:
         "metrics_file": os.getenv("METRICS_FILE", "/tmp/binance-metrics.json"),
         # Topic chứa event invalid (rỗng = tắt DLQ, chỉ log + metric).
         "dlq_topic": os.getenv("KAFKA_DLQ_TOPIC", "crypto.dlq"),
+        "delivery_dlq_file": os.getenv(
+            "DELIVERY_DLQ_FILE", "/var/lib/crypto/dlq/trades.jsonl"
+        ),
     }
 
 
@@ -146,9 +168,7 @@ def run_forever() -> None:
             try:
                 ws = websocket.WebSocketApp(
                     url,
-                    on_message=lambda _ws, raw: on_raw_message(
-                        producer, cfg, raw
-                    ),
+                    on_message=lambda _ws, raw: on_raw_message(producer, cfg, raw),
                     on_error=lambda _ws, err: log.warning("ws error", err=str(err)),
                     on_close=lambda _ws, *a: log.warning("ws closed, reconnecting"),
                 )
@@ -171,7 +191,7 @@ def run_forever() -> None:
             if ws is not None:
                 ws.close()
             log.info("reconnect", backoff_s=backoff)
-            _counters["reconnect_total"] += 1
+            _count(reconnect_total=1)
             _shutdown.wait(backoff)
             backoff = min(backoff * 2, 60)
     finally:
@@ -191,9 +211,13 @@ def _to_dlq(producer, cfg: dict, raw: str, reason: str) -> None:
         return
     try:
         payload = raw if isinstance(raw, str) else str(raw)
-        producer.send(dlq_topic, key="invalid",
-                      value={"raw": payload[:2000], "reason": reason})
-        _counters["events_dlq_total"] += 1
+        future = producer.send(
+            dlq_topic, key="invalid", value={"raw": payload[:2000], "reason": reason}
+        )
+        future.add_callback(lambda _metadata: _count(events_dlq_total=1))
+        future.add_errback(
+            lambda exc: log.warning("invalid DLQ delivery failed", exc=exc)
+        )
     except Exception as exc:  # noqa: BLE001 - DLQ không được làm chết luồng chính
         log.warning("dlq send failed", exc=exc)
 
@@ -201,40 +225,86 @@ def _to_dlq(producer, cfg: dict, raw: str, reason: str) -> None:
 def on_raw_message(producer, cfg: dict, raw: str) -> None:
     """Parse 1 raw WS message → publish nếu là trade hợp lệ + đập nhịp tim."""
     global _flushed_at
-    _counters["events_received_total"] += 1
     try:
         msg = orjson.loads(raw)
     except (orjson.JSONDecodeError, TypeError):
         log.warning("skip non-JSON message")
-        _counters["events_invalid_total"] += 1
+        _count(events_received_total=1, events_invalid_total=1)
         _to_dlq(producer, cfg, raw, "non-json")
         return
     event = parse_trade(msg)
     if event is None:
         # Invalid (giá/qty <= 0, thiếu field...): reject + log + metric + DLQ.
         log.warning("skip invalid trade", raw=str(raw)[:200])
-        _counters["events_invalid_total"] += 1
+        _count(events_received_total=1, events_invalid_total=1)
         _to_dlq(producer, cfg, raw, "invalid-trade")
         return
 
-    def _failed(exc, _event) -> None:
-        _counters["publish_failures_total"] += 1
+    settled = False
+    settle_lock = threading.Lock()
 
-    publish(producer, cfg["topic"], event, on_error=_failed)
-    _counters["events_published_total"] += 1
+    def _settle(success: bool) -> bool:
+        nonlocal settled
+        with settle_lock:
+            if settled:
+                return False
+            settled = True
+        _count(
+            events_pending=-1,
+            **{
+                "events_published_total" if success else "publish_failures_total": 1,
+            },
+        )
+        return True
+
+    def _acknowledged(_metadata, _event) -> None:
+        if _settle(True) and beat(cfg["heartbeat_file"]):
+            dump_metrics(cfg.get("metrics_file", "/tmp/binance-metrics.json"))
+
+    def _failed(exc, failed_event) -> None:
+        if not _settle(False):
+            return
+        try:
+            append_record(
+                cfg.get("delivery_dlq_file", "/var/lib/crypto/dlq/trades.jsonl"),
+                "trade",
+                {"topic": cfg["topic"], "event": failed_event},
+                type(exc).__name__,
+            )
+        except OSError as dlq_error:
+            _count(dlq_write_failures_total=1)
+            log.error(
+                "delivery failed and DLQ write failed",
+                exc=dlq_error,
+                symbol=event["symbol"],
+            )
+        else:
+            _count(events_delivery_dlq_total=1)
+            log.error("delivery failed, saved to recovery DLQ", symbol=event["symbol"])
+        dump_metrics(cfg.get("metrics_file", "/tmp/binance-metrics.json"))
+
+    _count(events_received_total=1, events_pending=1)
+    try:
+        publish(
+            producer, cfg["topic"], event, on_error=_failed, on_success=_acknowledged
+        )
+    except Exception as exc:  # send can fail before returning a Future
+        _failed(exc, event)
+        return
+    _count(events_enqueued_total=1)
     # Flush theo nhịp: đảm bảo event tới broker kể cả khi crash giữa chừng.
     # Đo latency flush = proxy cho publish latency (send bất đồng bộ).
-    if _counters["events_published_total"] - _flushed_at >= cfg.get("flush_every", 500):
+    enqueued = snapshot_metrics()["events_enqueued_total"]
+    if enqueued - _flushed_at >= cfg.get("flush_every", 500):
         started = time.time()
         producer.flush()
         latency = time.time() - started
-        _counters["last_flush_latency_s"] = round(latency, 3)
-        _counters["max_flush_latency_s"] = round(
-            max(_counters["max_flush_latency_s"], latency), 3
-        )
-        _flushed_at = _counters["events_published_total"]
-    if beat(cfg["heartbeat_file"]):
-        dump_metrics(cfg.get("metrics_file", "/tmp/binance-metrics.json"))
+        with _counter_lock:
+            _counters["last_flush_latency_s"] = round(latency, 3)
+            _counters["max_flush_latency_s"] = round(
+                max(_counters["max_flush_latency_s"], latency), 3
+            )
+        _flushed_at = enqueued
 
 
 if __name__ == "__main__":
