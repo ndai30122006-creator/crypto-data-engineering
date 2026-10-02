@@ -9,7 +9,11 @@ def docker_executable() -> str:
     configured = os.getenv("DOCKER_EXE")
     if configured:
         return configured
-    found = shutil.which("docker")
+    try:
+        found = shutil.which("docker")
+    except OSError:
+        # Some Windows PATH directories are not readable in a restricted shell.
+        found = None
     if found:
         return found
     for root, relative in (
@@ -18,6 +22,9 @@ def docker_executable() -> str:
     ):
         if root:
             candidate = Path(root) / relative
-            if candidate.is_file():
-                return str(candidate)
+            try:
+                if candidate.is_file():
+                    return str(candidate)
+            except OSError:
+                continue
     return "docker"
