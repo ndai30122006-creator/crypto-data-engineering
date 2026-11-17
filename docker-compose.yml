@@ -167,7 +167,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: ${KAFKA_TOPIC:-crypto.trades.v2}
       KAFKA_DLQ_TOPIC: crypto.dlq
-      SYMBOLS: BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT
+      SYMBOLS: BTCUSDT,ETHUSDT
       HEARTBEAT_FILE: /tmp/binance-consumer.heartbeat
       DELIVERY_DLQ_FILE: /var/lib/crypto/dlq/trades.jsonl
       BACKFILL_ENABLED: ${BACKFILL_ENABLED:-true}
