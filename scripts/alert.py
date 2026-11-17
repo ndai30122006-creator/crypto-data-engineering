@@ -10,9 +10,11 @@ Ngưỡng qua env (default cho local):
 Exit: 0 xanh hết, 1 có đỏ. Mỗi ALERT ghi rõ metric + ngưỡng + hành động.
 """
 
+import json
 import math
 import os
 import sys
+import urllib.request
 
 from metrics import collect
 
@@ -157,9 +159,25 @@ def _safe(text: str) -> str:
     return text.encode(enc, errors="replace").decode(enc)
 
 
+def _send_webhook(alerts: list[str]) -> None:
+    url = os.getenv("ALERT_WEBHOOK_URL")
+    if not url or not alerts:
+        return
+    payload = json.dumps({"alerts": alerts, "count": len(alerts)}).encode("utf-8")
+    request = urllib.request.Request(
+        url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10):
+            pass
+    except Exception as exc:  # noqa: BLE001 - alert CLI must still return its own status
+        print(f"webhook delivery failed: {exc}")
+
+
 def main() -> int:
     metrics = collect()
     alerts = evaluate(metrics)
+    _send_webhook(alerts)
     for line in alerts:
         print(_safe(line))
     if alerts:
