@@ -3,6 +3,11 @@ name: crypto-data-engineering
 services:
   postgres:
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
     image: postgres:16
     container_name: crypto-postgres
     environment:
@@ -47,9 +52,19 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
 
   dagster-webserver:
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
     build:
       context: .
       dockerfile: Dockerfile.dagster
@@ -76,6 +91,11 @@ services:
 
   dagster-daemon:
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
     build:
       context: .
       dockerfile: Dockerfile.dagster
@@ -106,6 +126,11 @@ services:
   # min ISR=2, producer acks=all đã sẵn trong consumer.
   kafka:
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
     image: apache/kafka:3.9.0
     container_name: crypto-kafka
     environment:
@@ -165,6 +190,11 @@ services:
     # Cho flush(15s) kịp chạy trước SIGKILL khi docker stop.
     stop_grace_period: 60s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
 
   pathway:
     build:
@@ -201,6 +231,11 @@ services:
       retries: 3
       start_period: 90s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
 
 volumes:
   pgdata:
