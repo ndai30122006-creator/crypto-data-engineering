@@ -12,6 +12,7 @@ import time
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from typing import Any, Callable
 
 import httpx
 import orjson
@@ -21,7 +22,7 @@ from ingestion.kafka_producer import publish
 
 
 class RateLimited(RuntimeError):
-    def __init__(self, seconds):
+    def __init__(self, seconds: float) -> None:
         super().__init__("Binance rate limited; gap retained")
         self.seconds = seconds
 
@@ -29,11 +30,11 @@ class RateLimited(RuntimeError):
 class HistoricalTrades:
     """Bounded HTTP retries; 429/418 cooldown is enforced by the worker."""
 
-    def __init__(self, client=None, wait=time.sleep):
+    def __init__(self, client: httpx.Client | None = None, wait: Callable[[float], Any] = time.sleep) -> None:
         self.client = client or httpx.Client(base_url="https://api.binance.com", timeout=10)
         self.wait = wait
 
-    def fetch(self, symbol, start, limit):
+    def fetch(self, symbol: str, start: int, limit: int) -> list[dict[str, Any]]:
         limit = min(1000, max(1, limit))
         for attempt in range(3):
             try:
@@ -80,15 +81,15 @@ class HistoricalTrades:
             return events
         raise RuntimeError("Binance retries exhausted")
 
-    def close(self):
+    def close(self) -> None:
         self.client.close()
 
 
 class GapState:
-    def __init__(self, path, destination):
+    def __init__(self, path: str | Path, destination: str) -> None:
         self.path = Path(path)
         self.lock = threading.RLock()
-        self.state = {"version": 1, "destination": destination, "ack": {}, "gaps": {}}
+        self.state: dict[str, Any] = {"version": 1, "destination": destination, "ack": {}, "gaps": {}}
         if self.path.exists():
             state = orjson.loads(self.path.read_bytes())
             if state.get("version") != 1 or state.get("destination") != destination:
@@ -105,7 +106,7 @@ class GapState:
         self.seen = dict(self.state["ack"])
         self.last_save = 0.0
 
-    def _save(self):
+    def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(self.path.suffix + ".tmp")
         with temporary.open("wb") as output:
@@ -115,15 +116,15 @@ class GapState:
         temporary.replace(self.path)
         # Persist directory entry on Linux; filesystems must support fsync.
         if os.name != "nt":
-            descriptor = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            descriptor = os.open(self.path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
             try:
                 os.fsync(descriptor)
             finally:
                 os.close(descriptor)
         self.last_save = time.monotonic()
 
-    def _add(self, symbol, start, end):
-        merged = []
+    def _add(self, symbol: str, start: int, end: int) -> None:
+        merged: list[list[int]] = []
         for left, right in sorted(self.state["gaps"].get(symbol, []) + [[start, end]]):
             if merged and left <= merged[-1][1] + 1:
                 merged[-1][1] = max(merged[-1][1], right)
@@ -131,7 +132,7 @@ class GapState:
                 merged.append([left, right])
         self.state["gaps"][symbol] = merged
 
-    def observe(self, event):
+    def observe(self, event: dict[str, Any]) -> None:
         symbol, value = event["symbol"], event["trade_id"]
         with self.lock:
             previous = self.seen.get(symbol)
@@ -140,19 +141,19 @@ class GapState:
                 self._save()  # gap durable BEFORE a later live trade can be acked
             self.seen[symbol] = max(value, previous if previous is not None else value)
 
-    def ack(self, event):
+    def ack(self, event: dict[str, Any]) -> None:
         with self.lock:
             symbol = event["symbol"]
             self.state["ack"][symbol] = max(event["trade_id"], self.state["ack"].get(symbol, -1))
             if time.monotonic() - self.last_save >= 1:
                 self._save()  # at most 1 fsync/s on the producer callback thread
 
-    def failed(self, event):
+    def failed(self, event: dict[str, Any]) -> None:
         with self.lock:
             self._add(event["symbol"], event["trade_id"], event["trade_id"])
             self._save()
 
-    def complete(self, symbol, start, end):
+    def complete(self, symbol: str, start: int, end: int) -> None:
         with self.lock:
             remaining = []
             for left, right in self.state["gaps"].get(symbol, []):
@@ -166,28 +167,30 @@ class GapState:
             self.state["gaps"][symbol] = remaining
             self._save()
 
-    def snapshot(self):
+    def snapshot(self) -> dict[str, Any]:
         with self.lock:
             return copy.deepcopy(self.state)
 
-    def flush(self):
+    def flush(self) -> None:
         with self.lock:
             self._save()
 
 
 class BackfillWorker:
-    def __init__(self, state, producer, topic, rest=None, fatal_callback=None):
-        self.state, self.producer, self.topic = state, producer, topic
-        self.stop = threading.Event()
-        self.rest = rest or HistoricalTrades(wait=self.stop.wait)
-        self.fatal_callback = fatal_callback
-        self.thread = None
-        self.cursor = 0
-        self.metrics_lock = threading.Lock()
-        self.stats = {"recovered_total": 0, "failures_total": 0,
+    def __init__(self, state: "GapState", producer: Any, topic: str, rest: HistoricalTrades | None = None, fatal_callback: Callable[[], None] | None = None) -> None:
+        self.state: GapState = state
+        self.producer: Any = producer
+        self.topic: str = topic
+        self.stop: threading.Event = threading.Event()
+        self.rest: HistoricalTrades = rest or HistoricalTrades(wait=self.stop.wait)
+        self.fatal_callback: Callable[[], None] | None = fatal_callback
+        self.thread: threading.Thread | None = None
+        self.cursor: int = 0
+        self.metrics_lock: threading.Lock = threading.Lock()
+        self.stats: dict[str, Any] = {"recovered_total": 0, "failures_total": 0,
                       "checkpoint_failures_total": 0, "last_error": None}
 
-    def snapshot(self):
+    def snapshot(self) -> dict[str, Any]:
         data = self.state.snapshot()
         ranges = [r for ranges in data["gaps"].values() for r in ranges]
         with self.metrics_lock:
@@ -195,7 +198,7 @@ class BackfillWorker:
                     "pending_trades": sum(end-start+1 for start, end in ranges),
                     "last_ack": data["ack"], "gaps": data["gaps"]}
 
-    def fatal(self, exc):
+    def fatal(self, exc: BaseException) -> None:
         with self.metrics_lock:
             self.stats["checkpoint_failures_total"] += 1
             self.stats["last_error"] = type(exc).__name__
@@ -203,7 +206,7 @@ class BackfillWorker:
         if self.fatal_callback:
             self.fatal_callback()
 
-    def recover_one(self):
+    def recover_one(self) -> int:
         data = self.state.snapshot()
         symbols = sorted(s for s, gaps in data["gaps"].items() if gaps)
         if not symbols:
@@ -232,7 +235,7 @@ class BackfillWorker:
                 self.state.complete(symbol, start, last)  # acknowledged prefix only
         return last - start + 1
 
-    def _run(self):
+    def _run(self) -> None:
         while not self.stop.is_set():
             delay = 1.0  # <=60 pages/min * weight 25 = 1500 weight/min per worker
             try:
@@ -250,11 +253,11 @@ class BackfillWorker:
                 delay = exc.seconds if isinstance(exc, RateLimited) else 10
             self.stop.wait(delay)
 
-    def start(self):
+    def start(self) -> None:
         self.thread = threading.Thread(target=self._run, name="raw-trade-backfill", daemon=True)
         self.thread.start()
 
-    def close(self):
+    def close(self) -> None:
         self.stop.set()
         if self.thread:
             self.thread.join(timeout=45)  # network phases + bounded Kafka ack wait

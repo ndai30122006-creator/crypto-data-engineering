@@ -5,6 +5,7 @@ Không import kafka/websocket ở đây để test offline được.
 
 import math
 import re
+from typing import Any
 
 import orjson
 
@@ -13,7 +14,7 @@ MAX_TIMESTAMP_MS = 253402300799999
 MAX_TRADE_ID = 2**63 - 1
 
 
-def _integer(value, maximum: int, minimum: int) -> int:
+def _integer(value: int | str, maximum: int, minimum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, str)):
         raise ValueError("expected integer")
     if isinstance(value, str) and not value.isascii():
@@ -24,7 +25,7 @@ def _integer(value, maximum: int, minimum: int) -> int:
     return result
 
 
-def normalize_trade(data: dict) -> dict | None:
+def normalize_trade(data: dict[str, Any]) -> dict[str, Any] | None:
     """Validate the v2 trade contract; retain Binance's business identity."""
     if not isinstance(data, dict):
         return None
@@ -83,7 +84,7 @@ def combined_stream_url(symbols: list[str]) -> str:
     return f"{BINANCE_WS_BASE}?streams={streams}"
 
 
-def parse_trade(msg: dict) -> dict | None:
+def parse_trade(msg: dict[str, Any]) -> dict[str, Any] | None:
     """Parse 1 message Binance trade → event nội bộ.
 
     Combined stream bọc payload trong {"stream", "data"}; direct stream
@@ -104,6 +105,6 @@ def parse_trade(msg: dict) -> dict | None:
     )
 
 
-def serialize_event(event: dict) -> bytes:
+def serialize_event(event: dict[str, Any]) -> bytes:
     """Serialize event → JSON bytes cho Kafka value (orjson, nhanh)."""
     return orjson.dumps(event)

@@ -4,13 +4,14 @@ import os
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import orjson
 
 _lock = threading.Lock()
 
 
-def append_record(path: str, kind: str, payload: dict, reason: str) -> None:
+def append_record(path: str, kind: str, payload: dict[str, Any], reason: str) -> None:
     """Append and fsync before reporting success; propagate filesystem failures."""
     record = {
         "kind": kind,

@@ -38,7 +38,7 @@ python_version = "3.12"
 ignore_missing_imports = true
 warn_unused_configs = true
 explicit_package_bases = true
-files = ["ingestion/events.py", "scripts/doctor.py", "scripts/alert.py"]
+files = ["ingestion", "streaming", "scripts/doctor.py", "scripts/alert.py"]
 
 [build-system]
 requires = ["hatchling"]

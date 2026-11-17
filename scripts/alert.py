@@ -11,11 +11,11 @@ Exit: 0 xanh hết, 1 có đỏ. Mỗi ALERT ghi rõ metric + ngưỡng + hành 
 """
 
 import json
-from collections.abc import Mapping
 import math
 import os
 import sys
 import urllib.request
+from collections.abc import Mapping
 
 from metrics import collect
 

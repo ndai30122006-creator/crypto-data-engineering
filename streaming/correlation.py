@@ -50,7 +50,11 @@ def find_correlations(
         if abs(candle["price_change_1m"]) <= threshold:
             continue
         w_start = _as_utc(candle["window_start"])
+        if w_start is None:
+            continue
         for article, pub in dated:
+            if pub is None:
+                continue
             if abs((w_start - pub).total_seconds()) <= window_minutes * 60:
                 hits.append(
                     {

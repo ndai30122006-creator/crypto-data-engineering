@@ -5,6 +5,8 @@ Delivery: errback log mọi lỗi gửi (không im lặng mất event),
 caller flush theo nhịp để đảm bảo event tới broker trước khi thoát.
 """
 
+from typing import Any, Callable
+
 import orjson
 from kafka import KafkaProducer
 
@@ -32,8 +34,12 @@ def build_producer(bootstrap_servers: str) -> KafkaProducer:
 
 
 def publish(
-    producer: KafkaProducer, topic: str, event: dict, on_error=None, on_success=None
-):
+    producer: KafkaProducer,
+    topic: str,
+    event: dict[str, Any],
+    on_error: Callable[[BaseException, dict[str, Any]], None] | None = None,
+    on_success: Callable[[Any, dict[str, Any]], None] | None = None,
+) -> Any:
     """Publish 1 event, key = symbol. Gắn errback log lỗi delivery.
 
     on_error(err, event): hook tùy chọn (đếm metric / ghi dead-letter).

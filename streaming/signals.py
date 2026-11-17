@@ -79,7 +79,7 @@ def detect_price_spike(
     if not threshold.is_finite() or threshold <= 0:
         raise ValueError("PRICE_SPIKE_THRESHOLD_PCT must be finite and positive")
     cutoff = int((now or datetime.now(UTC)).timestamp()) // 60 * 60
-    by_symbol = {}
+    by_symbol: dict[str, dict[int, tuple[object, Decimal]]] = {}
     for candle in candles:
         try:
             start = _seconds(candle["window_start"])

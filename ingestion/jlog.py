@@ -8,7 +8,10 @@
   (hệ log riêng của Dagster) — không lẫn với hệ này.
 """
 import logging
+from typing import Any
 
+_jlogger: Any
+_HAS_JLOGGER: bool
 try:
     import jlogger as _jlogger
 
@@ -25,13 +28,14 @@ class JLog:
         if backend == "auto":
             backend = "jlogger" if _HAS_JLOGGER else "stdlib"
         self._backend = backend
+        self._fields: dict[str, Any] = {}
         if backend == "jlogger":
             self._log = _base if _base is not None else _jlogger.getLogger(name)
         else:
             self._log = _base if _base is not None else logging.getLogger(name)
         self._name = name
 
-    def with_fields(self, **fields) -> "JLog":
+    def with_fields(self, **fields: Any) -> "JLog":
         """Logger con gắn sẵn context (vd symbol) — base bất biến."""
         if self._backend == "jlogger":
             return JLog(self._name, "jlogger", self._log.with_values(**fields))
@@ -39,7 +43,7 @@ class JLog:
         child._fields = {**getattr(self, "_fields", {}), **fields}
         return child
 
-    def _emit(self, level: str, msg: str, exc=None, **fields) -> None:
+    def _emit(self, level: str, msg: str, exc: BaseException | None = None, **fields: Any) -> None:
         if self._backend == "jlogger":
             event = getattr(self._log, level)()
             if exc is not None:
@@ -54,16 +58,16 @@ class JLog:
         suffix = f" {merged}" if merged else ""
         getattr(self._log, level)(f"{msg}{suffix}")
 
-    def debug(self, msg: str, **fields) -> None:
+    def debug(self, msg: str, **fields: Any) -> None:
         self._emit("debug", msg, **fields)
 
-    def info(self, msg: str, **fields) -> None:
+    def info(self, msg: str, **fields: Any) -> None:
         self._emit("info", msg, **fields)
 
-    def warning(self, msg: str, **fields) -> None:
+    def warning(self, msg: str, **fields: Any) -> None:
         self._emit("warning", msg, **fields)
 
-    def error(self, msg: str, exc=None, **fields) -> None:
+    def error(self, msg: str, exc: BaseException | None = None, **fields: Any) -> None:
         self._emit("error", msg, exc=exc, **fields)
 
 

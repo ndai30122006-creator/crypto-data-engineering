@@ -19,6 +19,7 @@ import signal
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import orjson
 import websocket
@@ -33,7 +34,7 @@ from ingestion.jlog import get_logger
 from ingestion.kafka_producer import TOPIC_TRADES, build_producer, publish
 
 log = get_logger("binance-consumer")
-_backfill = None
+_backfill: Any = None
 
 _shutdown = threading.Event()
 _current_ws: websocket.WebSocketApp | None = None
@@ -42,7 +43,7 @@ _flushed_at = 0
 _started_at = time.time()
 _counter_lock = threading.Lock()
 _metrics_lock = threading.Lock()
-_counters = {
+_counters: dict[str, Any] = {
     "events_received_total": 0,
     "events_invalid_total": 0,
     "events_dlq_total": 0,
@@ -58,7 +59,7 @@ _counters = {
 }
 
 
-def snapshot_metrics() -> dict:
+def snapshot_metrics() -> dict[str, Any]:
     """Counters hiện tại + uptime (cho metrics file / status)."""
     with _counter_lock:
         stats = {**_counters, "uptime_seconds": round(time.time() - _started_at, 1)}
@@ -67,7 +68,7 @@ def snapshot_metrics() -> dict:
     return stats
 
 
-def _count(**changes) -> None:
+def _count(**changes: int) -> None:
     with _counter_lock:
         for key, delta in changes.items():
             _counters[key] += delta
@@ -105,7 +106,7 @@ def beat(path: str, interval: float = 10.0, now: float | None = None) -> bool:
     return True
 
 
-def load_config() -> dict:
+def load_config() -> dict[str, Any]:
     symbols = [
         s.strip().upper()
         for s in os.getenv("SYMBOLS", ",".join(DEFAULT_SYMBOLS)).split(",")
@@ -139,7 +140,7 @@ def _positive_int(raw: str | None, default: int) -> int:
         return default
 
 
-def _handle_signal(signum, _frame) -> None:
+def _handle_signal(signum: int, _frame: Any) -> None:
     global _current_ws
     log.info("received signal, shutting down", signal=signum)
     _shutdown.set()
@@ -225,7 +226,7 @@ def run_forever() -> None:
         log.info("shutdown complete")
 
 
-def _to_dlq(producer, cfg: dict, raw: str, reason: str) -> None:
+def _to_dlq(producer: Any, cfg: dict[str, Any], raw: str, reason: str) -> None:
     """Gửi event invalid vào DLQ topic (rỗng KAFKA_DLQ_TOPIC = tắt)."""
     dlq_topic = cfg.get("dlq_topic", "crypto.dlq")
     if not dlq_topic:
@@ -243,7 +244,7 @@ def _to_dlq(producer, cfg: dict, raw: str, reason: str) -> None:
         log.warning("dlq send failed", exc=exc)
 
 
-def on_raw_message(producer, cfg: dict, raw: str) -> None:
+def on_raw_message(producer: Any, cfg: dict[str, Any], raw: str) -> None:
     """Parse 1 raw WS message → publish nếu là trade hợp lệ + đập nhịp tim."""
     global _flushed_at
     try:

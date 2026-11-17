@@ -4,7 +4,6 @@ Không cần Docker. Dùng để phát hiện thiếu dependency, env hoặc def
 """
 import importlib
 import os
-import sys
 
 REQUIRED_MODULES = ["dagster", "psycopg2", "httpx", "msgspec", "orjson", "kafka", "yaml"]
 REQUIRED_ENV_FOR_DAGSTER = ["DATABASE_URL", "DAGSTER_ENVIRONMENT"]
