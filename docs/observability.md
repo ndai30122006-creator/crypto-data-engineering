@@ -66,3 +66,7 @@ Scheduler/cron; chưa cài scheduler bên ngoài trong scope lần sửa này.
 - Compose mount `recovery_dlq` tại `/var/lib/crypto/dlq`, và `pathway_state`
   cho engine snapshots. Không lưu recovery chỉ vào `/tmp`.
 - Recovery DLQ giữ trades đã nhận. Chưa có Binance REST backfill cho outage.
+
+## Alert webhook
+
+Dat ALERT_WEBHOOK_URL de scripts/alert.py gui JSON {"alerts": [...], "count": N} khi co alert. Webhook khong lam thay doi exit code cua CLI.
