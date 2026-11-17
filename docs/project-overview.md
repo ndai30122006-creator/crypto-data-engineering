@@ -134,7 +134,15 @@ docker compose down           # tắt (data còn trong volumes)
 UI http://localhost:3000: Assets → Materialize; Automation → bật 2 schedules.
 Sửa code local → container tự load lại (volume mount), không cần build.
 
-## 9. Việc còn lại
+## 10. Cập nhật hiện tại (2026-11)
+
+- Trade contract v2, dedupe theo trade ID, OHLC theo event time.
+- Delivery accounting: acknowledged/pending/failure.
+- Durable DLQ + replay có checkpoint.
+- Quarantine schema CoinGecko.
+- Detector xét mọi cửa sổ 5 phút trong giờ.
+- Offline tests: 184 passed, 14 skipped.
+- Ruff clean; Dagster definitions validate OK.
 
 - [ ] Bật 2 schedules ON + re-materialize news (refill DB mới)
 - [ ] Commit + push code Phase 2 (schema, market/, assets, tests, queries.sql, compose `name:`)
