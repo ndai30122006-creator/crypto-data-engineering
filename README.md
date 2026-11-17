@@ -122,7 +122,11 @@ Chi tiết: [observability](docs/observability.md).
 `docker compose down` giữ named volumes. Không dùng `down -v` khi còn cần
 Postgres, Kafka, DLQ hoặc Pathway state.
 
-## Giới hạn vận hành
+## Secrets và môi trường
+
+- `.env` được ignore; không commit secret. Dùng `.env.example` làm template.
+- Đổi `POSTGRES_PASSWORD`, credentials và URL khi chạy ngoài local.
+- Compose defaults chỉ dành cho môi trường học local/single-node.
 
 - Trade schema v1 thiếu ID không được trộn vào topic v2. Lịch sử sai trước đây
   chưa được sửa tự động; cần raw trades để backfill/rebuild.
