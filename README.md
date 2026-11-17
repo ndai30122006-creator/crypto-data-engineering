@@ -53,7 +53,13 @@ thiếu/invalid/partial → NULL. View tính lại từ candles mới nhất khi
 kể cả sau late trade; cột legacy `market_1m.price_change_1m` vẫn để NULL.
 DB cũ chạy migration 002; DB mới có view trong baseline schema.
 
-## Stack và cấu trúc
+## Dev parity (Windows)
+
+Pathway không có wheel Windows. Logic streaming được kiểm tra trong container Linux
+qua CI (`tests/test_pathway_graph.py`) và job `streaming-e2e`. Trên Windows, dùng
+Docker Compose để chạy Pathway/Kafka/Postgres; không sync Pathway vào `.venv`
+Windows. Nếu chỉ sửa code Python trong `streaming/` hoặc `ingestion/`, container
+tự reload nhờ volume mount, không cần rebuild.
 
 Dependencies được khóa trong `uv.lock`; Python 3.12, Dagster, Pathway 0.32.1
 (Linux/macOS), kafka-python, psycopg2, httpx, msgspec và Ruff.
