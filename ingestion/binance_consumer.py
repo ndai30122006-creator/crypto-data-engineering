@@ -125,7 +125,7 @@ def load_config() -> dict:
         "delivery_dlq_file": os.getenv(
             "DELIVERY_DLQ_FILE", "/var/lib/crypto/dlq/trades.jsonl"
         ),
-        "backfill_enabled": os.getenv("BACKFILL_ENABLED", "false").lower() == "true",
+        "backfill_enabled": os.getenv("BACKFILL_ENABLED", "true").lower() == "true",
         "backfill_state_file": os.getenv("BACKFILL_STATE_FILE", "/var/lib/crypto/ingestion-state/gaps.json"),
     }
 

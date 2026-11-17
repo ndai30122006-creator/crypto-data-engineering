@@ -78,7 +78,7 @@ correlation query (Phase 5).
 | msgspec | Validate tầng 1 | Rác bị loại trước khi vào DB |
 | psycopg2 | Driver Postgres | `with conn` tự commit/rollback |
 | Docker Compose | 4 services + volumes | postgres + dagster-code (gRPC 4000) + webserver + daemon |
-| pytest | 15 unit tests | Mock để offline được |
+| pytest | 184+ offline tests | Mock để offline được; integration skip nếu không có INTEGRATION=1 |
 
 Khái niệm cốt lõi đã học: cron, upsert/idempotency, composite key, JSONB,
 retry/backoff, field mapping, bad-record pattern, volume/mount, code location
