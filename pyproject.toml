@@ -25,6 +25,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mypy>=1.10",
     "pytest",
     "ruff>=0.16.8,<0.17",
 ]
@@ -32,8 +33,12 @@ dev = [
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_configs = true
+explicit_package_bases = true
+files = ["ingestion/events.py", "scripts/doctor.py", "scripts/alert.py"]
 
 [build-system]
 requires = ["hatchling"]

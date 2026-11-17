@@ -11,6 +11,7 @@ Exit: 0 xanh hết, 1 có đỏ. Mỗi ALERT ghi rõ metric + ngưỡng + hành 
 """
 
 import json
+from collections.abc import Mapping
 import math
 import os
 import sys
@@ -97,7 +98,7 @@ def _value(metrics: dict, key: str):
     return metrics.get("db", {}).get(key)
 
 
-def evaluate(metrics: dict, env: dict | None = None) -> list[str]:
+def evaluate(metrics: dict, env: Mapping[str, str] | None = None) -> list[str]:
     """Trả về list câu ALERT (rỗng = xanh). env inject để test được."""
     env = env if env is not None else os.environ
     alerts = []
